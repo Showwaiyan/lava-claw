@@ -1,9 +1,10 @@
 import {App} from 'obsidian'
-import type {Service, MessageSource, ConversationTurn} from './types'
+import type {Service, MessageSource, ConversationTurn, Prompt} from './types'
 import type {LavaClawSettings} from './settings'
 import {MemoryService} from './services/memory'
 import {VaultService} from './services/vault'
 import {SkillsService} from './services/skills'
+import {GeminiService} from './services/gemini'
 
 export class PluginCore {
 	private app: App
@@ -13,6 +14,7 @@ export class PluginCore {
 	memory!: MemoryService
 	vault!: VaultService
 	skills!: SkillsService
+	gemini!: GeminiService
 
 	constructor(app: App, settings: LavaClawSettings) {
 		this.app = app
@@ -34,6 +36,11 @@ export class PluginCore {
 		this.registerService(skills)
 		await skills.init()
 		this.skills = skills
+
+		const gemini = new GeminiService(this.settings)
+		this.registerService(gemini)
+		await gemini.init()
+		this.gemini = gemini
 	}
 
 	async destroy(): Promise<void> {
@@ -44,14 +51,64 @@ export class PluginCore {
 	}
 
 	async handleMessage(text: string, source: MessageSource): Promise<void> {
-		// Full implementation in Chunk 4 (message routing).
-		// Stub: echo back for now.
-		const turn: ConversationTurn = {
-			role: 'assistant',
-			content: `(echo) ${text}`,
+		// Parse /skill command prefix
+		let skillContent: string | null = null
+		let messageText = text
+		const skillMatch = text.match(/^\/skill\s+(\S+)\s*([\s\S]*)$/)
+		if (skillMatch) {
+			const skillName = skillMatch[1] ?? ''
+			messageText = skillMatch[2]?.trim() || text
+			skillContent = this.skills.resolveSkill(skillName)
+		}
+
+		// Build context
+		const memoryContext = await this.memory.getContext()
+		const vaultContext = await this.vault.searchRelevant(messageText)
+
+		const prompt: Prompt = {
+			system: memoryContext,
+			memory: '',
+			vaultContext,
+			skills: skillContent ? [skillContent] : [],
+			history: this.history.slice(-this.settings.llm.historyLength),
+			message: messageText,
+		}
+
+		// Add user turn to history
+		const userTurn: ConversationTurn = {
+			role: 'user',
+			content: messageText,
 			timestamp: Date.now(),
 		}
-		await source.reply(turn)
+		this.history.push(userTurn)
+		await this.memory.appendToDaily(userTurn)
+
+		// Stream response
+		let fullResponse = ''
+		const chunks = this.gemini.complete(prompt)
+
+		// Yield first partial turn so UI can start rendering
+		const partialTurn: ConversationTurn = {
+			role: 'assistant',
+			content: '',
+			timestamp: Date.now(),
+		}
+		await source.reply(partialTurn)
+
+		for await (const chunk of chunks) {
+			fullResponse += chunk
+			partialTurn.content = fullResponse
+			await source.reply(partialTurn)
+		}
+
+		// Record complete assistant turn
+		const assistantTurn: ConversationTurn = {
+			role: 'assistant',
+			content: fullResponse,
+			timestamp: Date.now(),
+		}
+		this.history.push(assistantTurn)
+		await this.memory.appendToDaily(assistantTurn)
 	}
 
 	clearHistory(): void {
