@@ -58,7 +58,7 @@ export class MemoryService implements Service {
 			await adapter.write(`${base}/SOUL.md`, DEFAULT_SOUL)
 			await adapter.write(`${base}/TOOLS.md`, DEFAULT_TOOLS)
 			await adapter.write(`${base}/memory.md`, '')
-			new Notice('Lava Claw initialized. Configure your AI provider and messaging channel in Settings to get started.')
+			new Notice('Initialized. Configure your AI provider and messaging channel in settings to get started.')
 			return
 		}
 

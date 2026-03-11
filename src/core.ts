@@ -1,12 +1,14 @@
 import {App} from 'obsidian'
 import type {Service, MessageSource, ConversationTurn} from './types'
 import type {LavaClawSettings} from './settings'
+import {MemoryService} from './services/memory'
 
 export class PluginCore {
 	private app: App
 	private settings: LavaClawSettings
 	private services: Service[] = []
 	private history: ConversationTurn[] = []
+	memory!: MemoryService
 
 	constructor(app: App, settings: LavaClawSettings) {
 		this.app = app
@@ -14,8 +16,10 @@ export class PluginCore {
 	}
 
 	async init(): Promise<void> {
-		// Services are registered and started in subsequent chunks.
-		// Order: memory → skills → vault → gemini → telegram → chat view
+		const memory = new MemoryService(this.app, this.settings)
+		this.registerService(memory)
+		await memory.init()
+		this.memory = memory
 	}
 
 	async destroy(): Promise<void> {
