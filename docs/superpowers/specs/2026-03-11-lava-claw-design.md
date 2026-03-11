@@ -31,6 +31,7 @@ LavaClawPlugin (main.ts)
     ├── GeminiService       — Gemini API/CLI, prompt construction, streaming
     ├── MemoryService       — read/write .lava-claw/ markdown files in vault
     ├── SkillsService       — load, index, install, remove skill files
+    ├── VaultService        — vault note search, read, create, update, delete
     └── ChatView            — Obsidian ItemView, chat UI, message ingress
 ```
 
@@ -92,7 +93,7 @@ Every message — from Telegram or ChatView — follows the same path:
 - `onload`: load settings → create `PluginCore` → `core.init()`
 - `onunload`: `core.destroy()`
 
-`core.init()` starts services in order: memory → skills → gemini → telegram → chat view.
+`core.init()` starts services in order: memory → skills → vault → gemini → telegram → chat view.
 `core.destroy()` stops in reverse.
 
 ### `src/` structure
@@ -145,14 +146,17 @@ The workspace folder path defaults to `.lava-claw` and is configurable in settin
 
 ### Prompt context injection order
 
-1. `SOUL.md` — always (system prompt)
-2. `memory.md` — always (persistent facts)
-3. Today's `memory/YYYY-MM-DD.md` — always (today's context)
-4. Relevant vault notes — auto-searched based on message topic (if read permission on)
-5. Explicitly referenced notes — `[[note name]]` syntax in user message
-6. Matched skill files — when user invokes `/skill <name>`
-7. Conversation history — last N turns (configurable, default 10)
-8. User message
+1. `SOUL.md` — always (system prompt, personality)
+2. `TOOLS.md` — always (system prompt, available capabilities)
+3. `memory.md` — always (persistent facts)
+4. Today's `memory/YYYY-MM-DD.md` — always (today's context)
+5. Relevant vault notes — auto-searched based on message topic (if read permission on)
+6. Explicitly referenced notes — `[[note name]]` syntax in user message
+7. Matched skill files — when user invokes `/skill <name>` command prefix
+8. Conversation history — last N turns (configurable, default 10)
+9. User message
+
+Skills are **command-driven only** in v1: the user must explicitly prefix their message with `/skill <name>` to inject a skill. `SkillsService.resolveSkills(name)` looks up the skill by exact name match. Fuzzy/topic-based automatic matching is deferred to a future release.
 
 ### `MemoryService` responsibilities
 
@@ -165,13 +169,13 @@ All reads/writes use Obsidian's `vault.adapter` API — never raw `fs`.
 
 ### `VaultService` responsibilities
 
-- `searchRelevant(query)` — full-text search across vault notes, returns top matches as context strings
-- `readNote(path)` — reads a specific note by path
-- `createNote(path, content)` — creates a new note (requires create permission)
-- `updateNote(path, content)` — updates an existing note (requires update permission)
-- `deleteNote(path)` — deletes a note (requires delete permission)
+- `searchRelevant(query)` — searches vault notes for relevance to the query. Implementation: iterate all markdown files via `vault.getMarkdownFiles()`, read each file's content via `vault.cachedRead()`, score by substring keyword overlap with the query tokens, return top 5 matches as context strings. Obsidian does not expose a native full-text search API, so this uses in-process keyword matching against cached file content.
+- `readNote(path)` — reads a specific note by path via `vault.adapter.read()`. Requires read permission.
+- `createNote(path, content)` — creates a new note via `vault.create()`. Requires create permission.
+- `updateNote(path, content)` — updates an existing note via `vault.modify()`. Requires update permission.
+- `deleteNote(path)` — deletes a note via `vault.delete()`. Requires delete permission.
 
-All operations check vault permissions before executing.
+All operations check vault permissions before executing. If the permission is off, the operation throws a `PermissionError` and the LLM is informed it lacks that permission.
 
 ### First-run initialization
 
@@ -217,8 +221,8 @@ Two auth methods, user selects in settings:
 
 | Method | How |
 |---|---|
-| API Key | User pastes Gemini API key in settings tab |
-| Gemini CLI OAuth | Plugin shells out to `gemini` CLI — user already authenticated |
+| API Key | User pastes Gemini API key in settings tab; requests are made directly via the Gemini REST API using `fetch()` |
+| Gemini CLI OAuth | Plugin spawns a child process via Node's `child_process.spawn('gemini', [...])`, passes the prompt via stdin, reads the response from stdout. Requires the `gemini` CLI to be installed and authenticated on the system. If the CLI is not found or exits non-zero, `GeminiService` surfaces a `Notice` with the error and returns an empty response. |
 
 ### `Prompt` structure
 
@@ -339,13 +343,14 @@ interface TelegramSettings {
     enabled: boolean
     botToken: string
     ownerUserId: string
+    ownerChatId: string      // auto-populated from first authorized inbound message
     allowedUserIds: string[]
 }
 ```
 
 ### Future proactive messages
 
-The `chatId` from the first authorized inbound message is stored in settings. This enables future plugin → Telegram notifications (e.g. from `SchedulerService`). Deferred to a future release.
+The `chatId` from the first authorized inbound message is stored in `TelegramSettings.ownerChatId` (persisted via `saveData()`). This enables future plugin → Telegram notifications (e.g. from `SchedulerService`). Deferred to a future release.
 
 ---
 
@@ -368,11 +373,11 @@ Skills are markdown files in `.lava-claw/skills/`. Each file is a self-contained
 
 ### `SkillsService` responsibilities
 
-- `init()` — scan `.lava-claw/skills/` and index available skills
-- `resolveSkills(query)` — return skill contents matching current invocation
-- `installFromFile(path)` — copy local file into skills folder (requires create permission)
-- `installFromGitHub(url)` — fetch raw content, save to skills folder (requires create permission)
-- `remove(name)` — delete skill file from vault (requires delete permission)
+- `init()` — scan `.lava-claw/skills/` and index available skills by name
+- `resolveSkills(name)` — return skill content for the given name (exact match); returns `null` if not found
+- `installFromFile(absolutePath)` — read source file using Node `fs` (source may be outside vault), then write content to `.lava-claw/skills/<name>.md` via `vault.adapter`. Requires create permission.
+- `installFromGitHub(url)` — fetch raw content via `fetch()`, save to `.lava-claw/skills/<name>.md` via `vault.adapter`. Accepts GitHub repo URLs or raw URLs; non-raw URLs are converted to `raw.githubusercontent.com` equivalents. Requires create permission.
+- `remove(name)` — delete skill file from vault via `vault.adapter`. Requires delete permission.
 
 ---
 
