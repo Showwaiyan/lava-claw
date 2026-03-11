@@ -33,6 +33,8 @@ export class SkillsService implements Service {
 		if (!exists) return
 
 		const listing = await adapter.list(this.skillsPath)
+
+		// Flat .md files directly in skills/
 		for (const filePath of listing.files) {
 			if (!filePath.endsWith('.md')) continue
 			const name = filePath
@@ -41,6 +43,20 @@ export class SkillsService implements Service {
 			try {
 				const content = await adapter.read(filePath)
 				this.index.set(name, {name, path: filePath, content})
+			} catch {
+				// unreadable — skip
+			}
+		}
+
+		// Folder-based skills: skills/<name>/SKILL.md
+		for (const folderPath of listing.folders) {
+			const name = folderPath.slice(this.skillsPath.length + 1)
+			const skillFilePath = `${folderPath}/SKILL.md`
+			const skillExists = await adapter.exists(skillFilePath)
+			if (!skillExists) continue
+			try {
+				const content = await adapter.read(skillFilePath)
+				this.index.set(name, {name, path: skillFilePath, content})
 			} catch {
 				// unreadable — skip
 			}
@@ -77,7 +93,16 @@ export class SkillsService implements Service {
 	async remove(name: string): Promise<void> {
 		const skill = this.index.get(name)
 		if (!skill) return
-		await this.app.vault.adapter.remove(skill.path)
+		// If skill lives in a subfolder (skills/<name>/SKILL.md), remove the folder
+		const expectedFolderFile = `${this.skillsPath}/${name}/SKILL.md`
+		if (skill.path === expectedFolderFile) {
+			const folderPath = `${this.skillsPath}/${name}`
+			const folderFile = this.app.vault.getAbstractFileByPath(folderPath)
+			if (folderFile) await this.app.fileManager.trashFile(folderFile)
+		} else {
+			const file = this.app.vault.getAbstractFileByPath(skill.path)
+			if (file) await this.app.fileManager.trashFile(file)
+		}
 		this.index.delete(name)
 	}
 
