@@ -24,3 +24,4 @@ data.json
 # OpenCode agent config (local dev tooling, not part of the plugin)
 .opencode/
 AGENTS.md
+docs/
