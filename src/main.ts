@@ -9,7 +9,7 @@ export default class LavaClawPlugin extends Plugin {
 
 	async onload() {
 		await this.loadSettings()
-		this.core = new PluginCore(this.app, this.settings)
+		this.core = new PluginCore(this.app, this.settings, () => this.saveSettings())
 
 		this.core.registerChatView(this)
 

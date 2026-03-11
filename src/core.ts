@@ -5,22 +5,26 @@ import {MemoryService} from './services/memory'
 import {VaultService} from './services/vault'
 import {SkillsService} from './services/skills'
 import {GeminiService} from './services/gemini'
+import {TelegramService} from './services/telegram'
 import {ChatView, CHAT_VIEW_TYPE} from './ui/chat-view'
 
 export class PluginCore {
 	private app: App
 	private settings: LavaClawSettings
+	private saveSettingsFn: () => Promise<void>
 	private services: Service[] = []
 	private history: ConversationTurn[] = []
 	memory!: MemoryService
 	vault!: VaultService
 	skills!: SkillsService
 	gemini!: GeminiService
+	telegram!: TelegramService
 	chatView: ChatView | null = null
 
-	constructor(app: App, settings: LavaClawSettings) {
+	constructor(app: App, settings: LavaClawSettings, saveSettings: () => Promise<void>) {
 		this.app = app
 		this.settings = settings
+		this.saveSettingsFn = saveSettings
 	}
 
 	async init(): Promise<void> {
@@ -45,6 +49,15 @@ export class PluginCore {
 		this.gemini = gemini
 
 		this.app.workspace.detachLeavesOfType(CHAT_VIEW_TYPE)
+
+		const telegram = new TelegramService(
+			this.settings,
+			(text, source) => this.handleMessage(text, source),
+			this.saveSettingsFn
+		)
+		this.registerService(telegram)
+		await telegram.init()
+		this.telegram = telegram
 	}
 
 	async destroy(): Promise<void> {
