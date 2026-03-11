@@ -22,6 +22,12 @@ export default tseslint.config(
 		},
 	},
 	...obsidianmd.configs.recommended,
+	{
+		plugins: {obsidianmd},
+		rules: {
+			'obsidianmd/ui/sentence-case': ['error', {brands: ['Gemini', 'Lava Claw', 'Telegram']}],
+		},
+	},
 	globalIgnores([
 		"node_modules",
 		"dist",
