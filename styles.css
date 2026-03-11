@@ -1,8 +1,102 @@
-/*
+.lava-claw-container {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	font-size: 14px;
+}
 
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
+.lava-claw-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 8px 12px;
+	border-bottom: 1px solid var(--background-modifier-border);
+	flex-shrink: 0;
+}
 
-If your plugin does not need CSS, delete this file.
+.lava-claw-title {
+	font-weight: 600;
+}
 
-*/
+.lava-claw-clear-btn {
+	background: none;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 4px;
+	cursor: pointer;
+	padding: 2px 8px;
+	color: var(--text-muted);
+	font-size: 12px;
+}
+
+.lava-claw-messages {
+	flex: 1;
+	overflow-y: auto;
+	padding: 12px;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.lava-claw-message {
+	max-width: 100%;
+	padding: 8px 12px;
+	border-radius: 8px;
+	line-height: 1.5;
+}
+
+.lava-claw-user {
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+	align-self: flex-end;
+	max-width: 80%;
+}
+
+.lava-claw-assistant {
+	background: var(--background-secondary);
+	align-self: flex-start;
+	width: 100%;
+}
+
+.lava-claw-assistant p:last-child {
+	margin-bottom: 0;
+}
+
+.lava-claw-input-bar {
+	display: flex;
+	align-items: flex-end;
+	gap: 8px;
+	padding: 8px 12px;
+	border-top: 1px solid var(--background-modifier-border);
+	flex-shrink: 0;
+}
+
+.lava-claw-input {
+	flex: 1;
+	resize: none;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	padding: 6px 10px;
+	background: var(--background-primary);
+	color: var(--text-normal);
+	font-family: inherit;
+	font-size: 14px;
+	max-height: 120px;
+	overflow-y: auto;
+}
+
+.lava-claw-send-btn {
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+	border: none;
+	border-radius: 6px;
+	padding: 6px 12px;
+	cursor: pointer;
+	font-size: 16px;
+	line-height: 1;
+}
+
+.lava-claw-send-btn:disabled,
+.lava-claw-input:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}

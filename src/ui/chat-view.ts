@@ -1,4 +1,4 @@
-import {App, ItemView, MarkdownRenderer, Notice, WorkspaceLeaf} from 'obsidian'
+import {ItemView, MarkdownRenderer, Notice, WorkspaceLeaf} from 'obsidian'
 import type {MessageSource, ConversationTurn} from '../types'
 import type {Service} from '../types'
 
@@ -109,11 +109,11 @@ export class ChatView extends ItemView implements Service, MessageSource {
 		})
 		this.sendBtn = inputBarEl.createEl('button', {text: '→', cls: 'lava-claw-send-btn'})
 
-		this.sendBtn.addEventListener('click', () => this.sendMessage())
+		this.sendBtn.addEventListener('click', () => { void this.sendMessage() })
 		this.inputEl.addEventListener('keydown', (e) => {
 			if (e.key === 'Enter' && !e.shiftKey) {
 				e.preventDefault()
-				this.sendMessage()
+				void this.sendMessage()
 			}
 		})
 	}
@@ -148,7 +148,7 @@ export class ChatView extends ItemView implements Service, MessageSource {
 		const cls = turn.role === 'user' ? 'lava-claw-user' : 'lava-claw-assistant'
 		const el = this.messagesEl.createDiv({cls: `lava-claw-message ${cls}`})
 		if (turn.role === 'assistant') {
-			MarkdownRenderer.render(this.app, turn.content, el, '', this)
+			void MarkdownRenderer.render(this.app, turn.content, el, '', this)
 		} else {
 			el.setText(turn.content)
 		}

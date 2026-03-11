@@ -11,6 +11,24 @@ export default class LavaClawPlugin extends Plugin {
 		await this.loadSettings()
 		this.core = new PluginCore(this.app, this.settings)
 
+		this.core.registerChatView(this)
+
+		this.addRibbonIcon('bot', 'Open Lava Claw chat', () => {
+			void this.core.openChatView()
+		})
+
+		this.addCommand({
+			id: 'open-chat',
+			name: 'Open chat',
+			callback: () => { void this.core.openChatView() },
+		})
+
+		this.addCommand({
+			id: 'clear-chat',
+			name: 'Clear chat',
+			callback: () => { this.core.clearHistory() },
+		})
+
 		this.addSettingTab(new LavaClawSettingTab(this.app, this))
 
 		try {

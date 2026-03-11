@@ -5,6 +5,7 @@ import {MemoryService} from './services/memory'
 import {VaultService} from './services/vault'
 import {SkillsService} from './services/skills'
 import {GeminiService} from './services/gemini'
+import {ChatView, CHAT_VIEW_TYPE} from './ui/chat-view'
 
 export class PluginCore {
 	private app: App
@@ -15,6 +16,7 @@ export class PluginCore {
 	vault!: VaultService
 	skills!: SkillsService
 	gemini!: GeminiService
+	chatView: ChatView | null = null
 
 	constructor(app: App, settings: LavaClawSettings) {
 		this.app = app
@@ -41,6 +43,8 @@ export class PluginCore {
 		this.registerService(gemini)
 		await gemini.init()
 		this.gemini = gemini
+
+		this.app.workspace.detachLeavesOfType(CHAT_VIEW_TYPE)
 	}
 
 	async destroy(): Promise<void> {
@@ -109,6 +113,26 @@ export class PluginCore {
 		}
 		this.history.push(assistantTurn)
 		await this.memory.appendToDaily(assistantTurn)
+	}
+
+	registerChatView(plugin: import('obsidian').Plugin): void {
+		plugin.registerView(
+			CHAT_VIEW_TYPE,
+			(leaf) => new ChatView(leaf, this)
+		)
+	}
+
+	async openChatView(): Promise<void> {
+		const existing = this.app.workspace.getLeavesOfType(CHAT_VIEW_TYPE)
+		if (existing.length > 0) {
+			const leaf = existing[0]
+			if (leaf) void this.app.workspace.revealLeaf(leaf)
+			return
+		}
+		const leaf = this.app.workspace.getRightLeaf(false)
+		if (!leaf) return
+		await leaf.setViewState({type: CHAT_VIEW_TYPE, active: true})
+		void this.app.workspace.revealLeaf(leaf)
 	}
 
 	clearHistory(): void {
