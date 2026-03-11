@@ -2,6 +2,8 @@ import {App} from 'obsidian'
 import type {Service, MessageSource, ConversationTurn} from './types'
 import type {LavaClawSettings} from './settings'
 import {MemoryService} from './services/memory'
+import {VaultService} from './services/vault'
+import {SkillsService} from './services/skills'
 
 export class PluginCore {
 	private app: App
@@ -9,6 +11,8 @@ export class PluginCore {
 	private services: Service[] = []
 	private history: ConversationTurn[] = []
 	memory!: MemoryService
+	vault!: VaultService
+	skills!: SkillsService
 
 	constructor(app: App, settings: LavaClawSettings) {
 		this.app = app
@@ -20,6 +24,16 @@ export class PluginCore {
 		this.registerService(memory)
 		await memory.init()
 		this.memory = memory
+
+		const vault = new VaultService(this.app, this.settings)
+		this.registerService(vault)
+		await vault.init()
+		this.vault = vault
+
+		const skills = new SkillsService(this.app, this.settings)
+		this.registerService(skills)
+		await skills.init()
+		this.skills = skills
 	}
 
 	async destroy(): Promise<void> {
