@@ -1,5 +1,5 @@
 import {SchemaType} from '@google/generative-ai'
-import type {Tool, ToolContext} from './index'
+import type {Tool} from './index'
 
 const ALLOWED_FILES = new Set(['SOUL.md', 'IDENTITY.md', 'USER.md', 'TOOLS.md', 'memory.md'])
 

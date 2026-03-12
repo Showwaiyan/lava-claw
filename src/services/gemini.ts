@@ -1,4 +1,6 @@
-import {Notice, requestUrl} from 'obsidian'
+import {GoogleGenerativeAI, FunctionCallingMode} from '@google/generative-ai'
+import type {ChatSession, FunctionDeclaration, Tool as GeminiTool} from '@google/generative-ai'
+import {Notice} from 'obsidian'
 import {execFile} from 'child_process'
 import * as path from 'path'
 import * as os from 'os'
@@ -6,24 +8,11 @@ import * as fs from 'fs'
 import type {LLMProvider, Prompt} from '../types'
 import type {LavaClawSettings} from '../settings'
 
-interface GeminiContent {
-	role: string
-	parts: Array<{text: string}>
-}
-
-interface GeminiRequest {
-	system_instruction?: {parts: Array<{text: string}>}
-	contents: GeminiContent[]
-	generationConfig?: {maxOutputTokens?: number}
-}
-
-interface GeminiCandidate {
-	content?: {parts?: Array<{text?: string}>}
-}
-
 export class GeminiService implements LLMProvider {
 	readonly id = 'gemini'
 	private settings: LavaClawSettings
+	private chatSession: ChatSession | null = null
+	private toolDefs: FunctionDeclaration[] = []
 
 	constructor(settings: LavaClawSettings) {
 		this.settings = settings
@@ -37,11 +26,26 @@ export class GeminiService implements LLMProvider {
 		// no-op
 	}
 
-	async *complete(prompt: Prompt): AsyncGenerator<string> {
+	setTools(defs: FunctionDeclaration[]): void {
+		this.toolDefs = defs
+		this.chatSession = null   // force re-creation with new tools
+	}
+
+	resetSession(): void {
+		this.chatSession = null
+	}
+
+	async *complete(
+		prompt: Prompt,
+		onToolStart?: (name: string) => void,
+		onToolDone?: (name: string) => void,
+		onToolError?: (name: string, err: string) => void,
+		toolCtx?: import('../tools/index').ToolContext,
+	): AsyncGenerator<string> {
 		if (this.settings.llm.authMethod === 'cli') {
 			yield* this.completeViaCLI(prompt)
 		} else {
-			yield* this.completeViaAPI(prompt)
+			yield* this.completeViaAPI(prompt, onToolStart, onToolDone, onToolError, toolCtx)
 		}
 	}
 
@@ -53,49 +57,96 @@ export class GeminiService implements LLMProvider {
 		return parts.join('\n\n')
 	}
 
-	private buildContents(prompt: Prompt): GeminiContent[] {
-		const contents: GeminiContent[] = prompt.history.map(turn => ({
-			role: turn.role === 'user' ? 'user' : 'model',
-			parts: [{text: turn.content}],
-		}))
-		contents.push({role: 'user', parts: [{text: prompt.message}]})
-		return contents
+	private getOrCreateSession(systemPrompt: string): ChatSession {
+		if (this.chatSession) return this.chatSession
+
+		const genAI = new GoogleGenerativeAI(this.settings.llm.apiKey)
+		const tools: GeminiTool[] = this.toolDefs.length > 0
+			? [{functionDeclarations: this.toolDefs}]
+			: []
+
+		const model = genAI.getGenerativeModel({
+			model: this.settings.llm.model,
+			systemInstruction: systemPrompt,
+			tools,
+			toolConfig: this.toolDefs.length > 0
+				? {functionCallingConfig: {mode: FunctionCallingMode.AUTO}}
+				: undefined,
+		})
+
+		this.chatSession = model.startChat()
+		return this.chatSession
 	}
 
-	private async *completeViaAPI(prompt: Prompt): AsyncGenerator<string> {
-		const {apiKey, model} = this.settings.llm
+	private async *completeViaAPI(
+		prompt: Prompt,
+		onToolStart?: (name: string) => void,
+		onToolDone?: (name: string) => void,
+		onToolError?: (name: string, err: string) => void,
+		toolCtx?: import('../tools/index').ToolContext,
+	): AsyncGenerator<string> {
+		const {apiKey} = this.settings.llm
 		if (!apiKey) {
 			new Notice('Gemini API key is not configured. Add it in Lava Claw settings.')
 			return
 		}
 
-		const body: GeminiRequest = {
-			system_instruction: {
-				parts: [{text: this.buildSystemPrompt(prompt)}],
-			},
-			contents: this.buildContents(prompt),
-		}
+		const systemPrompt = this.buildSystemPrompt(prompt)
+		const session = this.getOrCreateSession(systemPrompt)
 
-		const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`
+		// The ChatSession owns history — we only send the new user message each turn
+		const userMessage = prompt.message
 
 		try {
-			const response = await requestUrl({
-				url,
-				method: 'POST',
-				headers: {'Content-Type': 'application/json'},
-				body: JSON.stringify(body),
-				throw: false,
-			})
+			// Agent loop: keep sending tool responses until the model emits text
+			let parts: import('@google/generative-ai').Part[] = [{text: userMessage}]
 
-			if (response.status < 200 || response.status >= 300) {
-				const preview = response.text.slice(0, 100)
-				new Notice(`Lava Claw: Gemini API error ${response.status}: ${preview}`)
-				return
+			while (true) {
+				const result = await session.sendMessageStream(parts)
+				const response = await result.response
+
+				const functionCalls = response.functionCalls()
+				if (functionCalls && functionCalls.length > 0 && toolCtx) {
+					// Execute all tool calls, collect responses
+					const toolResponseParts: import('@google/generative-ai').Part[] = []
+
+					for (const call of functionCalls) {
+						onToolStart?.(call.name)
+						const args = call.args as Record<string, unknown>
+						const registry = (toolCtx as unknown as {_registry?: import('../tools/index').ToolRegistry})._registry
+						let toolResult: string
+						if (registry) {
+							toolResult = await registry.dispatch(call.name, args, toolCtx)
+						} else {
+							toolResult = 'Error: no tool registry available'
+						}
+
+						if (toolResult.startsWith('Error:')) {
+							onToolError?.(call.name, toolResult)
+						} else {
+							onToolDone?.(call.name)
+						}
+
+						toolResponseParts.push({
+							functionResponse: {
+								name: call.name,
+								response: {output: toolResult},
+							},
+						})
+					}
+
+					// Feed tool results back into the loop
+					parts = toolResponseParts
+					continue
+				}
+
+				// No tool calls — stream text to caller
+				for await (const chunk of result.stream) {
+					const text = chunk.text()
+					if (text) yield text
+				}
+				break
 			}
-
-			const parsed = response.json as {candidates?: GeminiCandidate[]}
-			const text = parsed.candidates?.[0]?.content?.parts?.[0]?.text
-			if (text) yield text
 		} catch (e) {
 			const msg = e instanceof Error ? e.message : String(e)
 			new Notice(`Lava Claw: Gemini request failed: ${msg}`)
