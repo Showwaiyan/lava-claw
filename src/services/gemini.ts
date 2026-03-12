@@ -102,12 +102,17 @@ export class GeminiService implements LLMProvider {
 	private async *completeViaCLI(prompt: Prompt): AsyncGenerator<string> {
 		const systemPrompt = this.buildSystemPrompt(prompt)
 		const userMessage = prompt.message
-		const fullPrompt = `${systemPrompt}\n\nUser: ${userMessage}\nAssistant:`
+		const fullPrompt = systemPrompt
+			? `${systemPrompt}\n\nUser: ${userMessage}`
+			: userMessage
 
-		async function* runCLI(model: string, input: string): AsyncGenerator<string> {
-			// Use login shell so PATH includes user-installed binaries (e.g. ~/.local/bin, /usr/local/bin)
-			const proc = spawn('sh', ['-lc', `gemini --model ${model}`], {
-				stdio: ['pipe', 'pipe', 'pipe'],
+		async function* runCLI(input: string): AsyncGenerator<string> {
+			// Use login shell so PATH includes user-installed binaries (e.g. /opt/homebrew/bin)
+			// Do NOT pass --model — let gemini CLI use its own configured default,
+			// since passing an explicit model can conflict with CLI's thinking config.
+			const escaped = input.replace(/'/g, `'\\''`)
+			const proc = spawn('sh', ['-lc', `gemini --prompt '${escaped}'`], {
+				stdio: ['ignore', 'pipe', 'pipe'],
 			})
 
 			let resolveError: (err: Error | null) => void
@@ -120,9 +125,6 @@ export class GeminiService implements LLMProvider {
 				resolveError(null)
 			})
 
-			proc.stdin.write(input)
-			proc.stdin.end()
-
 			for await (const chunk of proc.stdout) {
 				yield String(chunk)
 			}
@@ -132,7 +134,7 @@ export class GeminiService implements LLMProvider {
 		}
 
 		try {
-			yield* runCLI(this.settings.llm.model, fullPrompt)
+			yield* runCLI(fullPrompt)
 		} catch (e) {
 			const err = e as Error & {code?: string}
 			if (err.code === 'ENOENT') {
