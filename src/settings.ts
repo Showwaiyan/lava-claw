@@ -4,9 +4,7 @@ import type {VaultPermissions} from './types'
 
 export interface LLMSettings {
 	provider: 'gemini'
-	authMethod: 'apikey' | 'cli'
 	apiKey: string
-	cliPath: string
 	model: string
 	historyLength: number
 }
@@ -30,9 +28,7 @@ export interface LavaClawSettings {
 export const DEFAULT_SETTINGS: LavaClawSettings = {
 	llm: {
 		provider: 'gemini',
-		authMethod: 'apikey',
 		apiKey: '',
-		cliPath: 'gemini',
 		model: 'gemini-2.5-flash',
 		historyLength: 10,
 	},
@@ -108,60 +104,14 @@ export class LavaClawSettingTab extends PluginSettingTab {
 		new Setting(containerEl).setName('AI provider').setHeading()
 
 		new Setting(containerEl)
-			.setName('Auth method')
-			.addDropdown(drop => drop
-				.addOption('apikey', 'API key')
-				.addOption('cli', `Gemini CLI (OAuth)${''}`)
-				.setValue(this.plugin.settings.llm.authMethod)
+			.setName('API key')
+			.addText(text => text
+				.setPlaceholder('AIza...')
+				.setValue(this.plugin.settings.llm.apiKey)
 				.onChange(async (value) => {
-					this.plugin.settings.llm.authMethod = value as 'apikey' | 'cli'
+					this.plugin.settings.llm.apiKey = value
 					await this.plugin.saveSettings()
-					await this.plugin.core.restartService('gemini')
-					this.display()
 				}))
-
-		if (this.plugin.settings.llm.authMethod === 'cli') {
-			new Setting(containerEl)
-				.setName('Gemini CLI path')
-				.setDesc('Full path to the gemini binary (e.g. /opt/homebrew/bin/gemini). Leave blank to auto-detect.')
-				.addText(text => text
-					// eslint-disable-next-line obsidianmd/ui/sentence-case
-					.setPlaceholder('/opt/homebrew/bin/gemini')
-					.setValue(this.plugin.settings.llm.cliPath)
-					.onChange(async (value) => {
-						this.plugin.settings.llm.cliPath = value || 'gemini'
-						await this.plugin.saveSettings()
-					}))
-				.addButton(btn => btn
-					.setButtonText('Test')
-					.onClick(async () => {
-						btn.setDisabled(true)
-						btn.setButtonText('Testing…')
-						try {
-							const cliPath = this.plugin.settings.llm.cliPath || 'gemini'
-							const output = await this.plugin.core.gemini.runGeminiCLI(cliPath, 'Say "OK" in one word.')
-							new Notice(`Lava Claw: CLI test succeeded. Response: ${output.trim().slice(0, 100)}`)
-						} catch (e) {
-							const msg = e instanceof Error ? e.message : String(e)
-							new Notice(`Lava Claw: CLI test failed: ${msg}`, 10000)
-						} finally {
-							btn.setDisabled(false)
-							btn.setButtonText('Test')
-						}
-					}))
-		}
-
-		if (this.plugin.settings.llm.authMethod === 'apikey') {
-			new Setting(containerEl)
-				.setName('API key')
-				.addText(text => text
-					.setPlaceholder('AIza...')
-					.setValue(this.plugin.settings.llm.apiKey)
-					.onChange(async (value) => {
-						this.plugin.settings.llm.apiKey = value
-						await this.plugin.saveSettings()
-					}))
-		}
 
 		new Setting(containerEl)
 			.setName('Model')

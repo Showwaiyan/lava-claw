@@ -1,24 +1,34 @@
 import {Notice} from 'obsidian'
 import {Bot, Context} from 'grammy'
-import type {Service, MessageSource, ConversationTurn} from '../types'
+import type {Service, ConversationTurn} from '../types'
 import type {LavaClawSettings} from '../settings'
+import type {GeminiService} from './gemini'
+import type {AgentRunner} from './agent-runner'
+import type {MemoryService} from './memory'
 
 type SaveSettingsFn = () => Promise<void>
 
-export class TelegramService implements Service, MessageSource {
+export class TelegramService implements Service {
 	readonly id = 'telegram'
 	private settings: LavaClawSettings
+	private gemini: GeminiService
+	private agentRunner: AgentRunner
+	private memory: MemoryService
 	private saveSettings: SaveSettingsFn
 	private bot: Bot | null = null
-	private handleMessageFn: (text: string, source: MessageSource) => Promise<void>
+	private session: import('@google/generative-ai').ChatSession | null = null
 
 	constructor(
 		settings: LavaClawSettings,
-		handleMessage: (text: string, source: MessageSource) => Promise<void>,
+		gemini: GeminiService,
+		agentRunner: AgentRunner,
+		memory: MemoryService,
 		saveSettings: SaveSettingsFn
 	) {
 		this.settings = settings
-		this.handleMessageFn = handleMessage
+		this.gemini = gemini
+		this.agentRunner = agentRunner
+		this.memory = memory
 		this.saveSettings = saveSettings
 	}
 
@@ -28,6 +38,10 @@ export class TelegramService implements Service, MessageSource {
 
 		try {
 			this.bot = new Bot(botToken)
+
+			const systemPrompt = await this.memory.getContext()
+			this.session = this.gemini.createSession(systemPrompt)
+
 			this.bot.on('message:text', (ctx) => this.onMessage(ctx))
 			void this.bot.start({
 				onStart: () => console.debug('Lava Claw: Telegram bot started'),
@@ -44,12 +58,7 @@ export class TelegramService implements Service, MessageSource {
 			await this.bot.stop()
 			this.bot = null
 		}
-	}
-
-	// MessageSource interface — no-op; used only as placeholder
-	// Actual replies are sent directly via ctx.reply() in onMessage
-	async reply(_turn: ConversationTurn): Promise<void> {
-		// no-op
+		this.session = null
 	}
 
 	private isAuthorized(userId: string): boolean {
@@ -84,20 +93,20 @@ export class TelegramService implements Service, MessageSource {
 			await this.saveSettings()
 		}
 
-		// Collect full streamed response
-		let fullResponse = ''
-		const collectingSource: MessageSource = {
-			id: 'telegram-collector',
-			async reply(turn: ConversationTurn) {
-				fullResponse = turn.content
-			},
+		// Lazily create session if not already initialized
+		if (!this.session) {
+			const systemPrompt = await this.memory.getContext()
+			this.session = this.gemini.createSession(systemPrompt)
 		}
 
+		const userTurn: ConversationTurn = {role: 'user', content: text, timestamp: Date.now()}
+		await this.memory.appendToDaily(userTurn)
+
 		try {
-			await this.handleMessageFn(text, collectingSource)
-			if (fullResponse) {
-				await ctx.reply(fullResponse, {parse_mode: 'Markdown'})
-			}
+			const response = await this.agentRunner.run(this.session, text)
+			const assistantTurn: ConversationTurn = {role: 'assistant', content: response, timestamp: Date.now()}
+			await this.memory.appendToDaily(assistantTurn)
+			if (response) await ctx.reply(response, {parse_mode: 'Markdown'})
 		} catch (e) {
 			const msg = e instanceof Error ? e.message : String(e)
 			await ctx.reply(`Error: ${msg}`)

@@ -1,7 +1,7 @@
 # OAuth Multi-Provider Auth Design
 
 **Date:** 2026-03-12
-**Status:** Approved
+**Status:** Approved (revised — openclaw PKCE approach)
 
 ---
 
@@ -12,7 +12,7 @@ The Lava Claw plugin currently supports Gemini via two auth methods:
 - `apikey` — user pastes an API key into settings
 - `cli` — the plugin spawns a `gemini` subprocess, which is broken (no tool calling, no session history, re-asks identity every turn)
 
-This spec replaces the `cli` auth method with a proper `oauth` flow (browser-based sign-in), adds dynamic model listing via the provider API, and designs the auth layer to support multiple providers in the future.
+This spec replaces the `cli` auth method with a proper `oauth` flow (browser-based sign-in using PKCE and the installed Gemini CLI's bundled OAuth credentials), adds dynamic model listing via the provider API, and designs the auth layer to support multiple providers in the future.
 
 The Gemini CLI subprocess (`runGeminiCLI`, `completeViaCLI`) is removed entirely.
 
@@ -20,17 +20,21 @@ The Gemini CLI subprocess (`runGeminiCLI`, `completeViaCLI`) is removed entirely
 
 ## Goals
 
-1. Users authenticate with Gemini by signing in via browser (no CLI dependency, no API key required)
-2. OAuth tokens are stored in `.lava-claw/oauth/<providerId>.json` and auto-refreshed silently
-3. Available models are fetched from the provider API after sign-in and cached in settings
-4. The auth layer is generic enough that adding a second provider (e.g. OpenAI) requires only registering a new `ProviderConfig` — no structural changes
-5. Full tool calling and session history work identically to the existing `apikey` path
+1. Users authenticate with Gemini by signing in via browser — no CLI dependency, no API key required
+2. OAuth credentials are extracted dynamically from the installed `gemini` CLI binary — no hardcoded client ID/secret in the plugin
+3. PKCE flow with `localhost:8085` redirect — browser redirects automatically, modal closes without user action
+4. Manual paste fallback if local server creation fails (port conflict, unusual env)
+5. OAuth tokens stored in `.lava-claw/oauth/gemini.json` and auto-refreshed silently
+6. Google Cloud Project ID discovered via `cloudcode-pa.googleapis.com` after token exchange
+7. Available models fetched from the provider API after sign-in and cached in settings
+8. The auth layer is generic enough that adding a second provider requires only registering a new `ProviderConfig`
 
 ## Non-Goals
 
 - OAuth for providers other than Gemini (architecture supports it, implementation deferred)
 - Mobile support (plugin is `isDesktopOnly: true`)
-- Local HTTP redirect callback server (not possible in Obsidian; user pastes code instead)
+- Encrypting stored credentials
+- Token revocation on sign-out
 
 ---
 
@@ -39,45 +43,32 @@ The Gemini CLI subprocess (`runGeminiCLI`, `completeViaCLI`) is removed entirely
 ### One-time setup
 
 1. User opens Settings → clicks **"Sign in with Google"**
-2. `AuthService.startOAuthFlow('gemini')` generates an authorization URL:
-   - endpoint: `https://accounts.google.com/o/oauth2/auth`
-   - `client_id`: bundled constant (Gemini OAuth client ID)
-   - `redirect_uri`: `urn:ietf:wg:oauth:2.0:oob` (out-of-band — no local server needed)
-   - `scope`: `https://www.googleapis.com/auth/generative-language`
-   - `access_type`: `offline` (to receive a `refresh_token`)
-   - `response_type`: `code`
-3. `OAuthModal` opens — displays the URL and a "Open in browser" button (`window.open`)
-4. User authenticates in browser; Google displays an auth code on screen
-5. User copies the code (or the full callback URL) and pastes it into the modal's text field
-6. User clicks **"Connect"**
-7. `AuthService.handleOAuthCallback('gemini', input)` extracts the `code` parameter (handles both raw code and full URL), POSTs to `https://oauth2.googleapis.com/token`:
-   ```
-   grant_type=authorization_code
-   code=<code>
-   redirect_uri=urn:ietf:wg:oauth:2.0:oob
-   client_id=<clientId>
-   client_secret=<clientSecret>
-   ```
-8. Response: `{ access_token, refresh_token, expires_in, id_token }`
-9. Stored to `.lava-claw/oauth/gemini.json`:
-   ```json
-   {
-     "access_token": "...",
-     "refresh_token": "...",
-     "expiry_date": 1234567890000,
-     "email": "user@example.com"
-   }
-   ```
-   `email` extracted from `id_token` JWT payload (base64 decode middle segment, parse JSON, read `email`)
-10. Settings tab updates to show **"Connected as user@example.com"** with a **"Sign out"** button
-11. Model list is fetched and cached (see Model Listing section)
+2. `AuthService.startOAuthFlow('gemini')` is called:
+   a. Calls `extractGeminiCliCredentials()` — if it returns `null`, shows a `Notice` with install instructions and aborts
+   b. Generates a PKCE pair: `verifier` (32 random bytes, hex) and `challenge` (SHA-256 of verifier, base64url)
+   c. Attempts to start a local HTTP server on `localhost:8085`
+   d. If server starts: opens `OAuthModal` in **local mode** (shows "Opening browser…", "Cancel" button), opens browser automatically
+   e. If server fails (port in use, etc.): opens `OAuthModal` in **manual mode** (shows auth URL + paste field)
+3. User authenticates in browser; Google redirects to `http://localhost:8085/oauth2callback?code=…&state=…`
+4. Local server captures `code` and `state`, verifies state matches verifier, shuts down
+5. `AuthService` exchanges code for tokens (POST `https://oauth2.googleapis.com/token`) with `code_verifier`
+6. Fetches user email from `https://www.googleapis.com/oauth2/v1/userinfo`
+7. Discovers GCP project ID via `POST https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist`
+8. Stores credentials to `.lava-claw/oauth/gemini.json`
+9. `OAuthModal` closes automatically; settings tab updates to show "Connected as user@example.com"
+10. Model list is fetched and cached in settings
+
+**Manual mode fallback (step 3–4 replaced):**
+- Modal shows the auth URL and a text input
+- User opens the URL manually, authenticates, and pastes the full redirect URL (`http://localhost:8085/oauth2callback?code=…&state=…`) into the field
+- `AuthService` parses the pasted URL to extract `code` and `state`
 
 ### Token refresh
 
 Before every API call, `AuthService.getToken('gemini')`:
 
-1. Reads stored creds from `.lava-claw/oauth/gemini.json`
-2. If `expiry_date > Date.now() + 60_000` (1 minute buffer) → return `access_token` directly
+1. Reads stored creds from cache (populated lazily from disk on first call)
+2. If `expiry_date > Date.now() + 60_000` (1-minute buffer) → return `access_token` directly
 3. Otherwise POST to `https://oauth2.googleapis.com/token`:
    ```
    grant_type=refresh_token
@@ -85,44 +76,111 @@ Before every API call, `AuthService.getToken('gemini')`:
    client_id=<clientId>
    client_secret=<clientSecret>
    ```
-4. Response: `{ access_token, expires_in }`
-5. Update stored creds (`access_token`, `expiry_date`); `refresh_token` is unchanged
-6. Return new `access_token`
+4. Update stored creds (`access_token`, `expiry_date`); `refresh_token` and `projectId` are unchanged
+5. Return new `access_token`
 
-If refresh fails (token revoked, network error), throw a typed `AuthError` with message "Re-authentication required". `GeminiService` catches this and shows a `new Notice(...)` with instructions to re-sign in.
+If refresh fails, throw `AuthError('Re-authentication required')`. `GeminiService` catches this and shows a `Notice`.
 
 ### Sign out
 
 `AuthService.signOut('gemini')`:
 1. Deletes `.lava-claw/oauth/gemini.json`
-2. Clears cached model list from settings
-3. Settings tab reverts to "Sign in with Google" button
+2. Clears in-memory cache entry
+3. Clears `cachedModels` from settings
+4. Settings tab reverts to "Sign in with Google" button
+
+---
+
+## Credential Extraction
+
+**`src/services/gemini-cli-creds.ts`** — new file, pure function:
+
+```ts
+export function extractGeminiCliCredentials(): { clientId: string; clientSecret: string } | null
+```
+
+Algorithm:
+1. Check env vars first: `GEMINI_CLI_OAUTH_CLIENT_ID` / `GEMINI_CLI_OAUTH_CLIENT_SECRET` — if set, return them immediately
+2. Walk `process.env.PATH` entries, find first `gemini` binary (or `gemini.cmd`/`gemini.bat`/`gemini.exe` on Windows)
+3. Resolve symlinks with `realpathSync`
+4. Try these candidate paths for `oauth2.js`:
+   - `<resolvedDir>/../node_modules/@google/gemini-cli-core/dist/src/code_assist/oauth2.js`
+   - `<resolvedDir>/../node_modules/@google/gemini-cli-core/dist/code_assist/oauth2.js`
+   - `<binDir>/node_modules/@google/gemini-cli/…` and `../lib/node_modules/@google/gemini-cli/…`
+   - Depth-10 `findFile` fallback
+5. Regex `clientId = content.match(/(\d+-[a-z0-9]+\.apps\.googleusercontent\.com)/)` and `clientSecret = content.match(/(GOCSPX-[A-Za-z0-9_-]+)/)`
+6. Cache result in module-level variable; return `null` on any failure
+
+Uses `(window as any).require('fs')` and `(window as any).require('path')` — available in Electron's renderer process. Wrapped in `try/catch`; returns `null` on any error.
+
+---
+
+## PKCE Flow
+
+Auth URL parameters:
+```
+client_id=<clientId>
+response_type=code
+redirect_uri=http://localhost:8085/oauth2callback
+scope=https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile
+code_challenge=<base64url(sha256(verifier))>
+code_challenge_method=S256
+state=<verifier>
+access_type=offline
+prompt=consent
+```
+
+Token exchange adds `code_verifier=<verifier>`. Uses `window.require('crypto')` for `randomBytes` and `createHash`.
+
+---
+
+## Project Discovery
+
+After token exchange:
+
+1. POST `https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist` with `Authorization: Bearer <access_token>`
+2. Body: `{ metadata: { ideType: "ANTIGRAVITY", platform: "MACOS"|"WINDOWS"|"PLATFORM_UNSPECIFIED", pluginType: "GEMINI" } }`
+3. If response contains `cloudaicompanionProject` (string or `{id}`), use it as `projectId`
+4. If response indicates free tier (no `currentTier`): POST `…/v1internal:onboardUser` with `{ tierId: "free-tier", metadata: … }`, poll operation until `done`
+5. If env var `GOOGLE_CLOUD_PROJECT` is set, use it instead and skip the API calls
+6. `projectId` is stored in `StoredCreds` and passed as `x-goog-user-project` header in Gemini API requests when using OAuth
+
+`requestUrl` (Obsidian API) is used for all network calls in this step.
+
+---
+
+## Credential Storage
+
+Stored as JSON at `.lava-claw/oauth/<providerId>.json`:
+
+```json
+{
+  "access_token": "...",
+  "refresh_token": "...",
+  "expiry_date": 1234567890000,
+  "email": "user@example.com",
+  "projectId": "my-gcp-project-123"
+}
+```
+
+No encryption beyond OS-level vault file protection. Matches the pattern used by the Gemini CLI (`~/.gemini/oauth_creds.json`).
 
 ---
 
 ## Model Listing
 
-After OAuth sign-in completes (step 10 above):
+After OAuth sign-in completes:
 
 1. `AuthService.listModels('gemini')` calls:
    ```
    GET https://generativelanguage.googleapis.com/v1beta/models
    Authorization: Bearer <access_token>
+   x-goog-user-project: <projectId>
    ```
-2. Filters response to models where `supportedGenerationMethods` includes `generateContent`
-3. Returns `Model[]`:
-   ```ts
-   interface Model {
-     id: string        // e.g. "gemini-2.0-flash"
-     displayName: string  // e.g. "Gemini 2.0 Flash"
-   }
-   ```
-4. Stored in plugin settings (`cachedModels: Model[]`) via `saveData`
-5. Settings tab renders a dropdown of `displayName` values; selection updates `settings.model`
-
-A **"Refresh models"** button next to the dropdown re-calls `listModels` and updates the cache.
-
-If `listModels` fails, settings shows the currently selected model as plain text + a `Notice` error.
+2. Filters to models where `supportedGenerationMethods` includes `generateContent`
+3. Returns `OAuthModel[]` (`id`, `displayName`)
+4. Stored in `settings.llm.cachedModels` via `saveData`
+5. Settings renders a dropdown; "Refresh" button re-calls `listModels`
 
 ---
 
@@ -130,99 +188,76 @@ If `listModels` fails, settings shows the currently selected model as plain text
 
 ### New files
 
-**`src/services/auth.ts` — `AuthService`**
-
-```ts
-interface ProviderConfig {
-  id: string
-  authUrl: string
-  tokenUrl: string
-  modelsUrl: string
-  scopes: string[]
-  clientId: string
-  clientSecret: string
-}
-
-class AuthService {
-  register(config: ProviderConfig): void
-  startOAuthFlow(providerId: string): void          // generates URL, opens OAuthModal
-  handleOAuthCallback(providerId: string, input: string): Promise<void>
-  getToken(providerId: string): Promise<string>     // returns valid Bearer token
-  isAuthenticated(providerId: string): boolean
-  listModels(providerId: string): Promise<Model[]>
-  signOut(providerId: string): Promise<void>
-  getEmail(providerId: string): string | null
-}
-```
-
-`AuthService` receives `app: App` (for vault file access) and `plugin: Plugin` (for `saveData`) via constructor.
-
-`AuthService` maintains an in-memory cache of loaded credentials (a `Map<providerId, StoredCreds>`). `isAuthenticated` checks the cache synchronously — no disk read. The cache is populated on first `getToken` call (lazy load from disk) and invalidated on `signOut`.
-
-**`src/ui/oauth-modal.ts` — `OAuthModal`**
-
-Simple `Modal` subclass:
-- Displays auth URL as a copyable link
-- "Open in browser" button (`window.open(url)`)
-- Text input for pasting the code or callback URL
-- "Connect" button → calls `AuthService.handleOAuthCallback` → closes modal on success, shows error inline on failure
+**`src/services/gemini-cli-creds.ts`**
+- `extractGeminiCliCredentials(): { clientId: string; clientSecret: string } | null`
+- Module-level cache; uses `window.require('fs')` and `window.require('path')`
 
 ### Changed files
 
-**`src/settings.ts`**
-- `authMethod: 'apikey' | 'cli'` → `authMethod: 'apikey' | 'oauth'`
-- Add `cachedModels: Model[]` to `LavaClawSettings`
-- `SampleSettingTab` gains:
-  - OAuth section: "Sign in with Google" button or "Connected as \<email\>" + "Sign out"
-  - Model dropdown (populated from `cachedModels`) replacing any hardcoded model selector
-  - "Refresh models" button
+**`src/services/auth.ts`**
+- `ProviderConfig`: remove `clientId`, `clientSecret` fields
+- `StoredCreds`: add `projectId: string`
+- `generateAuthUrl` → replaced by internal `buildAuthUrl(challenge, verifier)` using PKCE params and `localhost:8085` redirect URI
+- `handleOAuthCallback` → replaced by `startLocalServer()` + `exchangeCodeForTokens(code, verifier, config)` internal methods
+- `startOAuthFlow`: extract credentials first, generate PKCE pair, attempt local server; fall back to manual mode; open `OAuthModal` appropriately
+- Add `discoverProject(token): Promise<string>` — project discovery call
+- Add `getUserEmail(token): Promise<string>` — userinfo call
+- Remove `generateAuthUrl` from public API
+
+**`src/ui/oauth-modal.ts`**
+- Two constructor modes: `local` (shows "Opening browser…" + Cancel) and `manual` (shows URL + paste field)
+- Local mode: modal has a `complete(success: boolean)` method called by `AuthService` when callback is received or cancelled
+- Manual mode: functionally similar to old modal but expects full redirect URL (not bare code); parses `?code=` and `?state=` from pasted URL
 
 **`src/services/gemini.ts`**
-- Remove `completeViaCLI`, `runGeminiCLI`, all CLI subprocess code
-- `complete()` calls `AuthService.getToken('gemini')` when `authMethod === 'oauth'`; API key path unchanged
-- Constructor receives `authService: AuthService`
+- `completeViaOAuth`: after getting token, also get `projectId` from creds and add `x-goog-user-project` header
+- Since `GoogleGenerativeAI` SDK doesn't support custom headers directly, use `requestUrl` for OAuth path instead of the SDK, or pass token as API key and set project via `baseApiUrl` override if available; otherwise accept the limitation and note it for future work
 
-**`src/main.ts`**
-- Instantiate `AuthService`, register Gemini `ProviderConfig`
-- Pass `authService` to `GeminiService` and `SampleSettingTab`
+**`src/core.ts`**
+- Remove `clientId: 'YOUR_GEMINI_CLIENT_ID'` and `clientSecret: 'YOUR_GEMINI_CLIENT_SECRET'` from `register()` call
+- `ProviderConfig` no longer has these fields
 
-**`src/core.ts`** — no changes
+**`src/types.ts`** — no changes needed
 
-### Credential storage
+**`src/settings.ts`** — no changes needed (UI already correct)
 
-Credentials are stored as plain JSON under `.lava-claw/oauth/`. The vault's `.lava-claw/` directory is already in use for workspace files. The `oauth/` subdirectory is new.
-
-No encryption beyond what the OS provides for vault files. This matches how the Gemini CLI stores its own credentials in `~/.gemini/oauth_creds.json`.
-
-### Bundled OAuth client credentials
-
-The `client_id` and `client_secret` are bundled as constants in `src/services/auth.ts`. This is standard practice for desktop OAuth clients (the secret is not truly secret for installed apps per RFC 8252). The Gemini CLI itself uses this same pattern.
+**`src/main.ts`** — no changes needed
 
 ---
 
-## Settings migration
+## GeminiService OAuth path and x-goog-user-project
 
-Users currently on `authMethod: 'cli'` are migrated to `authMethod: 'oauth'` on plugin load. A `Notice` informs them: "Gemini CLI mode has been replaced with OAuth sign-in. Please sign in again in Settings."
+The `@google/generative-ai` SDK initialised with a Bearer token instead of an API key works for model calls. The `x-goog-user-project` header is required for billing on non-free-tier accounts. Since the SDK doesn't expose per-request header injection, we pass `projectId` via the SDK's `requestOptions` at model construction time if the SDK supports it — otherwise we note this as a known limitation and users with standard-tier accounts may need to set `GOOGLE_CLOUD_PROJECT`. Free-tier accounts are unaffected.
+
+---
+
+## Settings Migration
+
+Users on `authMethod: 'cli'` are migrated to `authMethod: 'oauth'` on plugin load (already implemented). A `Notice` informs them to sign in again.
 
 Users on `authMethod: 'apikey'` are unaffected.
 
 ---
 
-## Error handling
+## Error Handling
 
 | Scenario | Handling |
 |---|---|
-| OAuth code exchange fails | Show error message inline in `OAuthModal` |
+| Gemini CLI not installed | `Notice` with install instructions; auth flow aborts |
+| Port 8085 in use | Fall back to manual paste mode automatically |
+| OAuth code exchange fails | Show error inline in `OAuthModal` |
+| State mismatch in callback | Reject with `AuthError('OAuth state mismatch')` |
 | Token refresh fails | Throw `AuthError`, `GeminiService` shows `Notice` prompting re-sign-in |
-| `listModels` fails | `Notice` error, fall back to existing `settings.model` value |
-| Creds file missing/corrupt | Treat as unauthenticated, show "Sign in" button |
-| Network offline | Propagate error to caller; existing `Notice` handling in `core.ts` covers it |
+| Project discovery fails | Throw `AuthError` with message; user must set `GOOGLE_CLOUD_PROJECT` env var |
+| `listModels` fails | `Notice` error; fall back to existing `settings.model` value |
+| Creds file missing/corrupt | Treat as unauthenticated; show "Sign in" button |
+| Network offline | Propagate error; existing `Notice` handling in `GeminiService` covers it |
 
 ---
 
 ## Out-of-scope (future work)
 
-- OpenAI, Anthropic, or other provider OAuth registration
+- OpenAI, Anthropic, or other provider OAuth
 - Encrypting stored credentials
-- Auto-opening browser without user clicking (security consideration)
-- Token revocation on sign-out (calling Google's revocation endpoint)
+- Token revocation on sign-out
+- `x-goog-user-project` injection via SDK (standard-tier workaround)

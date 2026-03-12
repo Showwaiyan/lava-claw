@@ -94,6 +94,34 @@ export class VaultService implements Service {
 		await this.vault.modify(file, content)
 	}
 
+	async appendNote(path: string, content: string): Promise<void> {
+		if (!this.permissions.update) throw new PermissionError('update')
+		const file = this.vault.getFileByPath(path)
+		if (!(file instanceof TFile)) throw new Error(`Note not found: ${path}`)
+		const existing = await this.vault.read(file)
+		await this.vault.modify(file, existing + '\n' + content)
+	}
+
+	async patchNote(path: string, oldString: string, newString: string): Promise<void> {
+		if (!this.permissions.update) throw new PermissionError('update')
+		const file = this.vault.getFileByPath(path)
+		if (!(file instanceof TFile)) throw new Error(`Note not found: ${path}`)
+		const existing = await this.vault.read(file)
+		if (!existing.includes(oldString)) throw new Error(`String not found in note: ${path}`)
+		await this.vault.modify(file, existing.replace(oldString, newString))
+	}
+
+	async writeNote(path: string, content: string): Promise<void> {
+		const file = this.vault.getFileByPath(path)
+		if (file instanceof TFile) {
+			if (!this.permissions.update) throw new PermissionError('update')
+			await this.vault.modify(file, content)
+		} else {
+			if (!this.permissions.create) throw new PermissionError('create')
+			await this.vault.create(path, content)
+		}
+	}
+
 	async deleteNote(path: string): Promise<void> {
 		if (!this.permissions.delete) throw new PermissionError('delete')
 		const file = this.vault.getFileByPath(path)

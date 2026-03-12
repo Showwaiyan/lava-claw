@@ -1,71 +1,48 @@
 import {SchemaType} from '@google/generative-ai'
+import {TFile} from 'obsidian'
 import type {Tool} from './index'
 
-const ALLOWED_FILES = new Set(['SOUL.md', 'IDENTITY.md', 'USER.md', 'TOOLS.md', 'memory.md'])
-
-function validateFilename(filename: unknown): string | null {
-	if (typeof filename !== 'string') return 'Error: filename must be a string'
-	// Reject any path traversal
-	if (filename.includes('/') || filename.includes('\\') || filename.includes('..')) {
-		return 'Error: path traversal not allowed'
-	}
-	if (!ALLOWED_FILES.has(filename)) {
-		return `Error: "${filename}" is not an allowed workspace file. Allowed: ${[...ALLOWED_FILES].join(', ')}`
-	}
-	return null
-}
-
-export const readWorkspaceFileTool: Tool = {
+export const openNoteTool: Tool = {
 	definition: {
-		name: 'read_workspace_file',
-		description: 'Read a file from the .lava-claw workspace folder. Allowed files: SOUL.md, IDENTITY.md, USER.md, TOOLS.md, memory.md.',
+		name: 'open_note',
+		description: 'Open a vault note in the Obsidian editor.',
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
-				filename: {type: SchemaType.STRING, description: 'Filename to read, e.g. "SOUL.md"'},
+				path: {type: SchemaType.STRING, description: 'Vault-relative path to the note'},
 			},
-			required: ['filename'],
+			required: ['path'],
 		},
 	},
 	async execute(args, ctx) {
-		const err = validateFilename(args['filename'])
-		if (err) return err
-		const filename = args['filename'] as string
-		const path = `${ctx.settings.workspacePath}/${filename}`
-		try {
-			return await ctx.memory.readWorkspaceFile(filename)
-		} catch (e) {
-			const msg = e instanceof Error ? e.message : String(e)
-			return `Error reading ${path}: ${msg}`
-		}
+		const notePath = args['path']
+		if (typeof notePath !== 'string') return 'Error: path must be a string'
+		const file = ctx.app.vault.getFileByPath(notePath)
+		if (!(file instanceof TFile)) return `Error: Note not found: ${notePath}`
+		const leaf = ctx.app.workspace.getLeaf(false)
+		if (!leaf) return 'Error: No workspace leaf available'
+		await leaf.openFile(file)
+		return `Opened: ${notePath}`
 	},
 }
 
-export const writeWorkspaceFileTool: Tool = {
+export const getOpenNotesTool: Tool = {
 	definition: {
-		name: 'write_workspace_file',
-		description: 'Write a file in the .lava-claw workspace folder. Allowed files: SOUL.md, IDENTITY.md, USER.md, TOOLS.md, memory.md.',
-		parameters: {
-			type: SchemaType.OBJECT,
-			properties: {
-				filename: {type: SchemaType.STRING, description: 'Filename to write, e.g. "SOUL.md"'},
-				content: {type: SchemaType.STRING, description: 'Full content to write to the file'},
-			},
-			required: ['filename', 'content'],
-		},
+		name: 'get_open_notes',
+		description: 'Get a list of all currently open notes in the Obsidian workspace.',
+		parameters: {type: SchemaType.OBJECT, properties: {}, required: []},
 	},
-	async execute(args, ctx) {
-		const err = validateFilename(args['filename'])
-		if (err) return err
-		const filename = args['filename'] as string
-		const content = args['content']
-		if (typeof content !== 'string') return 'Error: content must be a string'
-		await ctx.memory.writeWorkspaceFile(filename, content)
-		return `Wrote ${filename}`
+	async execute(_args, ctx) {
+		const leaves = ctx.app.workspace.getLeavesOfType('markdown')
+		if (leaves.length === 0) return 'No notes currently open.'
+		const paths = leaves
+			.map(leaf => (leaf.view as unknown as {file?: TFile}).file?.path)
+			.filter((p): p is string => typeof p === 'string')
+		return paths.join('\n')
 	},
 }
 
 export function registerWorkspaceTools(registry: import('./index').ToolRegistry): void {
-	registry.register(readWorkspaceFileTool)
-	registry.register(writeWorkspaceFileTool)
+	registry.register(openNoteTool)
+	registry.register(getOpenNotesTool)
 }

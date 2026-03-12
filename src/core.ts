@@ -1,10 +1,11 @@
 import {App} from 'obsidian'
-import type {Service, MessageSource, ConversationTurn, Prompt} from './types'
+import type {Service, MessageSource, ConversationTurn} from './types'
 import type {LavaClawSettings} from './settings'
 import {MemoryService} from './services/memory'
 import {VaultService} from './services/vault'
 import {SkillsService} from './services/skills'
 import {GeminiService} from './services/gemini'
+import {AgentRunner} from './services/agent-runner'
 import {TelegramService} from './services/telegram'
 import {ChatView, CHAT_VIEW_TYPE} from './ui/chat-view'
 import {ToolRegistry} from './tools/index'
@@ -18,12 +19,13 @@ export class PluginCore {
 	private settings: LavaClawSettings
 	private saveSettingsFn: () => Promise<void>
 	private services: Service[] = []
-	private history: ConversationTurn[] = []
+	private chatSession: import('@google/generative-ai').ChatSession | null = null
 	private toolRegistry: ToolRegistry = new ToolRegistry()
 	memory!: MemoryService
 	vault!: VaultService
 	skills!: SkillsService
 	gemini!: GeminiService
+	agentRunner!: AgentRunner
 	telegram!: TelegramService
 	chatView: ChatView | null = null
 
@@ -58,13 +60,26 @@ export class PluginCore {
 		registerVaultTools(this.toolRegistry)
 		registerWorkspaceTools(this.toolRegistry)
 		registerMemoryTools(this.toolRegistry)
-		this.gemini.setTools(this.toolRegistry.getDefinitions())
+		gemini.setToolDeclarations(this.toolRegistry.getDefinitions())
+
+		// Build tool context
+		const toolCtx: ToolContext = {
+			app: this.app,
+			vault: this.vault,
+			memory: this.memory,
+			settings: this.settings,
+		}
+
+		// Create AgentRunner (stateless, shared between channels)
+		this.agentRunner = new AgentRunner(this.toolRegistry, toolCtx)
 
 		this.app.workspace.detachLeavesOfType(CHAT_VIEW_TYPE)
 
 		const telegram = new TelegramService(
 			this.settings,
-			(text, source) => this.handleMessage(text, source),
+			this.gemini,
+			this.agentRunner,
+			this.memory,
 			this.saveSettingsFn
 		)
 		this.registerService(telegram)
@@ -80,77 +95,45 @@ export class PluginCore {
 	}
 
 	async handleMessage(text: string, source: MessageSource): Promise<void> {
-		// Parse /skill command prefix
-		let skillContent: string | null = null
-		let messageText = text
-		const skillMatch = text.match(/^\/skill\s+(\S+)\s*([\s\S]*)$/)
-		if (skillMatch) {
-			const skillName = skillMatch[1] ?? ''
-			messageText = skillMatch[2]?.trim() || text
-			skillContent = this.skills.resolveSkill(skillName)
+		// Ensure a chat session exists for the Obsidian chat channel
+		if (!this.chatSession) {
+			const systemPrompt = await this.memory.getContext()
+			this.chatSession = this.gemini.createSession(systemPrompt)
 		}
 
-		// Build context
-		const memoryContext = await this.memory.getContext()
-		const vaultContext = await this.vault.searchRelevant(messageText)
-
-		const prompt: Prompt = {
-			system: memoryContext,
-			memory: '',
-			vaultContext,
-			skills: skillContent ? [skillContent] : [],
-			history: this.history.slice(-this.settings.llm.historyLength),
-			message: messageText,
-		}
-
-		// Add user turn to history
+		// Add user turn to daily log
 		const userTurn: ConversationTurn = {
 			role: 'user',
-			content: messageText,
+			content: text,
 			timestamp: Date.now(),
 		}
-		this.history.push(userTurn)
 		await this.memory.appendToDaily(userTurn)
 
-		// Stream response
-		let fullResponse = ''
-		const toolCtx: ToolContext & {_registry: ToolRegistry} = {
-			vault: this.vault,
-			memory: this.memory,
-			settings: this.settings,
-			_registry: this.toolRegistry,
-		}
+		try {
+			const response = await this.agentRunner.run(
+				this.chatSession,
+				text,
+				(name) => source.showToolStatus?.(name, 'running'),
+				(name) => source.showToolStatus?.(name, 'done'),
+				(name, err) => source.showToolStatus?.(name, 'error', err),
+			)
 
-		const chunks = this.gemini.complete(
-			prompt,
-			(name) => source.showToolStatus?.(name, 'running'),
-			(name) => source.showToolStatus?.(name, 'done'),
-			(name, err) => source.showToolStatus?.(name, 'error', err),
-			toolCtx,
-		)
-
-		// Yield first partial turn so UI can start rendering
-		const partialTurn: ConversationTurn = {
-			role: 'assistant',
-			content: '',
-			timestamp: Date.now(),
+			const assistantTurn: ConversationTurn = {
+				role: 'assistant',
+				content: response,
+				timestamp: Date.now(),
+			}
+			await source.reply(assistantTurn)
+			await this.memory.appendToDaily(assistantTurn)
+		} catch (e) {
+			const msg = e instanceof Error ? e.message : String(e)
+			const errorTurn: ConversationTurn = {
+				role: 'assistant',
+				content: `Error: ${msg}`,
+				timestamp: Date.now(),
+			}
+			await source.reply(errorTurn)
 		}
-		await source.reply(partialTurn)
-
-		for await (const chunk of chunks) {
-			fullResponse += chunk
-			partialTurn.content = fullResponse
-			await source.reply(partialTurn)
-		}
-
-		// Record complete assistant turn
-		const assistantTurn: ConversationTurn = {
-			role: 'assistant',
-			content: fullResponse,
-			timestamp: Date.now(),
-		}
-		this.history.push(assistantTurn)
-		await this.memory.appendToDaily(assistantTurn)
 	}
 
 	registerChatView(plugin: import('obsidian').Plugin): void {
@@ -174,12 +157,7 @@ export class PluginCore {
 	}
 
 	clearHistory(): void {
-		this.history = []
-		this.gemini.resetSession()
-	}
-
-	getHistory(): ConversationTurn[] {
-		return this.history
+		this.chatSession = null
 	}
 
 	updateSettings(settings: LavaClawSettings): void {

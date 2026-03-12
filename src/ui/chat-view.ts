@@ -11,8 +11,6 @@ export class ChatView extends ItemView implements Service, MessageSource {
 	private inputEl!: HTMLTextAreaElement
 	private sendBtn!: HTMLButtonElement
 	private isLoading = false
-	// Tracks the last streaming bubble element for incremental updates
-	private streamingEl: HTMLElement | null = null
 
 	constructor(leaf: WorkspaceLeaf, core: import('../core').PluginCore) {
 		super(leaf)
@@ -33,10 +31,6 @@ export class ChatView extends ItemView implements Service, MessageSource {
 
 	async onOpen(): Promise<void> {
 		this.buildUI()
-		// Restore existing session from core
-		for (const turn of this.core.getHistory()) {
-			this.appendTurnToUI(turn)
-		}
 	}
 
 	async onClose(): Promise<void> {
@@ -55,36 +49,9 @@ export class ChatView extends ItemView implements Service, MessageSource {
 	// MessageSource interface
 	async reply(turn: ConversationTurn): Promise<void> {
 		if (turn.role !== 'assistant') return
-
-		if (this.streamingEl) {
-			// Update in-place during streaming
-			this.streamingEl.empty()
-			await MarkdownRenderer.render(
-				this.app,
-				turn.content,
-				this.streamingEl,
-				'',
-				this
-			)
-			this.scrollToBottom()
-			return
-		}
-
-		// First chunk — create the streaming bubble
-		this.streamingEl = this.messagesEl.createDiv({cls: 'lava-claw-message lava-claw-assistant'})
-		await MarkdownRenderer.render(
-			this.app,
-			turn.content || '▌',
-			this.streamingEl,
-			'',
-			this
-		)
+		const el = this.messagesEl.createDiv({cls: 'lava-claw-message lava-claw-assistant'})
+		await MarkdownRenderer.render(this.app, turn.content, el, '', this)
 		this.scrollToBottom()
-	}
-
-	finalizeStreaming(): void {
-		this.streamingEl = null
-		this.setLoading(false)
 	}
 
 	showToolStatus(name: string, status: 'running' | 'done' | 'error', error?: string): void {
@@ -147,7 +114,6 @@ export class ChatView extends ItemView implements Service, MessageSource {
 
 		this.inputEl.value = ''
 		this.setLoading(true)
-		this.streamingEl = null
 
 		// Render user turn immediately
 		const userTurn: ConversationTurn = {
@@ -163,7 +129,7 @@ export class ChatView extends ItemView implements Service, MessageSource {
 			const msg = e instanceof Error ? e.message : String(e)
 			new Notice(`Lava Claw error: ${msg}`)
 		} finally {
-			this.finalizeStreaming()
+			this.setLoading(false)
 		}
 	}
 
@@ -181,7 +147,6 @@ export class ChatView extends ItemView implements Service, MessageSource {
 	private clearSession(): void {
 		this.core.clearHistory()
 		this.messagesEl.empty()
-		this.streamingEl = null
 	}
 
 	private setLoading(loading: boolean): void {
