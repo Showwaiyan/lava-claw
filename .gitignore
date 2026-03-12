@@ -25,3 +25,6 @@ data.json
 .opencode/
 AGENTS.md
 docs/
+
+# Git worktrees
+.worktrees/
