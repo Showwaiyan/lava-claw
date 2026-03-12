@@ -105,7 +105,8 @@ export class GeminiService implements LLMProvider {
 		const fullPrompt = `${systemPrompt}\n\nUser: ${userMessage}\nAssistant:`
 
 		async function* runCLI(model: string, input: string): AsyncGenerator<string> {
-			const proc = spawn('gemini', ['--model', model], {
+			// Use login shell so PATH includes user-installed binaries (e.g. ~/.local/bin, /usr/local/bin)
+			const proc = spawn('sh', ['-lc', `gemini --model ${model}`], {
 				stdio: ['pipe', 'pipe', 'pipe'],
 			})
 

@@ -64,15 +64,24 @@ export class TelegramService implements Service, MessageSource {
 		const text = ctx.message?.text ?? ''
 		if (!text) return
 
-		// Auto-populate ownerChatId on first authorized message
-		if (this.isAuthorized(userId) && !this.settings.telegram.ownerChatId) {
-			this.settings.telegram.ownerChatId = String(ctx.chat?.id ?? '')
-			await this.saveSettings()
+		// First-time setup: if no owner is configured, tell the user their ID
+		if (!this.settings.telegram.ownerUserId) {
+			await ctx.reply(
+				`Lava Claw is not configured yet.\n\nYour Telegram user ID is: \`${userId}\`\n\nPaste it into Obsidian → Settings → Lava Claw → Owner Telegram user ID.`,
+				{parse_mode: 'Markdown'}
+			)
+			return
 		}
 
 		if (!this.isAuthorized(userId)) {
 			await ctx.reply('Unauthorized.')
 			return
+		}
+
+		// Auto-populate ownerChatId on first authorized message
+		if (!this.settings.telegram.ownerChatId) {
+			this.settings.telegram.ownerChatId = String(ctx.chat?.id ?? '')
+			await this.saveSettings()
 		}
 
 		// Collect full streamed response
@@ -96,12 +105,13 @@ export class TelegramService implements Service, MessageSource {
 	}
 
 	// Called from settings UI "Detect my ID" button
+	// Note: simpler path is to just message the bot — it will reply with your user ID
+	// if ownerUserId is not yet configured (see onMessage first-time setup block).
 	startDetectMode(onDetected: (userId: string) => void): void {
 		if (!this.bot) return
-		const handler = (ctx: Context) => {
+		this.bot.on('message:text', (ctx: Context) => {
 			const userId = String(ctx.from?.id ?? '')
 			if (userId) onDetected(userId)
-		}
-		this.bot.on('message:text', handler)
+		})
 	}
 }
