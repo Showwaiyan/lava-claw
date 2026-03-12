@@ -31,7 +31,7 @@ export const DEFAULT_SETTINGS: LavaClawSettings = {
 		provider: 'gemini',
 		authMethod: 'apikey',
 		apiKey: '',
-		model: 'gemini-2.0-flash',
+		model: 'gemini-2.5-flash',
 		historyLength: 10,
 	},
 	channel: 'telegram',
@@ -133,7 +133,7 @@ export class LavaClawSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName('Model')
 			.addText(text => text
-				.setPlaceholder(`gemini-2.0-flash${''}`)
+				.setPlaceholder(`gemini-2.5-flash${''}`)
 				.setValue(this.plugin.settings.llm.model)
 				.onChange(async (value) => {
 					this.plugin.settings.llm.model = value
