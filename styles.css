@@ -100,3 +100,23 @@
 	opacity: 0.5;
 	cursor: not-allowed;
 }
+
+.lava-claw-tool-status {
+	font-size: 0.8em;
+	font-style: italic;
+	padding: 2px 8px;
+	margin: 2px 0;
+	color: var(--text-muted);
+}
+
+.lava-claw-tool-running {
+	color: var(--text-muted);
+}
+
+.lava-claw-tool-done {
+	color: var(--color-green);
+}
+
+.lava-claw-tool-error {
+	color: var(--color-red);
+}

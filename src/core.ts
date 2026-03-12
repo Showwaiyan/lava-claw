@@ -7,6 +7,11 @@ import {SkillsService} from './services/skills'
 import {GeminiService} from './services/gemini'
 import {TelegramService} from './services/telegram'
 import {ChatView, CHAT_VIEW_TYPE} from './ui/chat-view'
+import {ToolRegistry} from './tools/index'
+import type {ToolContext} from './tools/index'
+import {registerVaultTools} from './tools/vault'
+import {registerWorkspaceTools} from './tools/workspace'
+import {registerMemoryTools} from './tools/memory'
 
 export class PluginCore {
 	private app: App
@@ -14,6 +19,7 @@ export class PluginCore {
 	private saveSettingsFn: () => Promise<void>
 	private services: Service[] = []
 	private history: ConversationTurn[] = []
+	private toolRegistry: ToolRegistry = new ToolRegistry()
 	memory!: MemoryService
 	vault!: VaultService
 	skills!: SkillsService
@@ -47,6 +53,12 @@ export class PluginCore {
 		this.registerService(gemini)
 		await gemini.init()
 		this.gemini = gemini
+
+		// Register tools
+		registerVaultTools(this.toolRegistry)
+		registerWorkspaceTools(this.toolRegistry)
+		registerMemoryTools(this.toolRegistry)
+		this.gemini.setTools(this.toolRegistry.getDefinitions())
 
 		this.app.workspace.detachLeavesOfType(CHAT_VIEW_TYPE)
 
@@ -102,7 +114,20 @@ export class PluginCore {
 
 		// Stream response
 		let fullResponse = ''
-		const chunks = this.gemini.complete(prompt)
+		const toolCtx: ToolContext & {_registry: ToolRegistry} = {
+			vault: this.vault,
+			memory: this.memory,
+			settings: this.settings,
+			_registry: this.toolRegistry,
+		}
+
+		const chunks = this.gemini.complete(
+			prompt,
+			(name) => source.showToolStatus?.(name, 'running'),
+			(name) => source.showToolStatus?.(name, 'done'),
+			(name, err) => source.showToolStatus?.(name, 'error', err),
+			toolCtx,
+		)
 
 		// Yield first partial turn so UI can start rendering
 		const partialTurn: ConversationTurn = {
@@ -150,6 +175,7 @@ export class PluginCore {
 
 	clearHistory(): void {
 		this.history = []
+		this.gemini.resetSession()
 	}
 
 	getHistory(): ConversationTurn[] {

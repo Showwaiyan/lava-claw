@@ -21,6 +21,7 @@ export interface Prompt {
 export interface MessageSource {
 	id: string
 	reply(turn: ConversationTurn): Promise<void>
+	showToolStatus?(name: string, status: 'running' | 'done' | 'error', error?: string): void
 }
 
 export interface LLMProvider extends Service {

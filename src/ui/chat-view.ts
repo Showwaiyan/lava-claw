@@ -87,6 +87,29 @@ export class ChatView extends ItemView implements Service, MessageSource {
 		this.setLoading(false)
 	}
 
+	showToolStatus(name: string, status: 'running' | 'done' | 'error', error?: string): void {
+		const existing = this.messagesEl.querySelector(`[data-tool="${name}"]`)
+
+		if (status === 'running') {
+			const el = this.messagesEl.createDiv({cls: 'lava-claw-tool-status lava-claw-tool-running'})
+			el.dataset['tool'] = name
+			el.setText(`Using ${name}…`)
+			this.scrollToBottom()
+			return
+		}
+
+		if (existing) {
+			if (status === 'done') {
+				existing.setText(`✓ ${name}`)
+				existing.className = 'lava-claw-tool-status lava-claw-tool-done'
+			} else {
+				existing.setText(`✗ ${name}${error ? ': ' + error : ''}`)
+				existing.className = 'lava-claw-tool-status lava-claw-tool-error'
+			}
+			this.scrollToBottom()
+		}
+	}
+
 	private buildUI(): void {
 		const {contentEl} = this
 		contentEl.empty()
