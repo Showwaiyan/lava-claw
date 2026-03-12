@@ -1,5 +1,8 @@
 import {Notice, requestUrl} from 'obsidian'
-import {spawn} from 'child_process'
+import {execFile} from 'child_process'
+import * as path from 'path'
+import * as os from 'os'
+import * as fs from 'fs'
 import type {LLMProvider, Prompt} from '../types'
 import type {LavaClawSettings} from '../settings'
 
@@ -106,42 +109,123 @@ export class GeminiService implements LLMProvider {
 			? `${systemPrompt}\n\nUser: ${userMessage}`
 			: userMessage
 
-		async function* runCLI(input: string): AsyncGenerator<string> {
-			// Use login shell so PATH includes user-installed binaries (e.g. /opt/homebrew/bin)
-			// Do NOT pass --model — let gemini CLI use its own configured default,
-			// since passing an explicit model can conflict with CLI's thinking config.
-			const escaped = input.replace(/'/g, `'\\''`)
-			const proc = spawn('sh', ['-lc', `gemini --prompt '${escaped}'`], {
-				stdio: ['ignore', 'pipe', 'pipe'],
-			})
-
-			let resolveError: (err: Error | null) => void
-			const errorPromise = new Promise<Error | null>(res => { resolveError = res })
-
-			proc.on('error', (err: Error) => {
-				resolveError(err)
-			})
-			proc.on('close', () => {
-				resolveError(null)
-			})
-
-			for await (const chunk of proc.stdout) {
-				yield String(chunk)
-			}
-
-			const err = await errorPromise
-			if (err) throw err
-		}
+		const cliPath = this.settings.llm.cliPath || 'gemini'
 
 		try {
-			yield* runCLI(fullPrompt)
+			const output = await this.runGeminiCLI(cliPath, fullPrompt)
+			if (output) yield output
 		} catch (e) {
 			const err = e as Error & {code?: string}
 			if (err.code === 'ENOENT') {
-				new Notice('Lava Claw: Gemini CLI not found. Install it or switch to API key auth.')
+				new Notice(`Lava Claw: Gemini CLI not found at "${cliPath}". Set the correct path in settings or switch to API key auth.`)
 			} else {
 				new Notice(`Lava Claw: Gemini CLI error: ${err.message}`)
 			}
 		}
+	}
+
+	// findBinary walks the augmented PATH to locate a binary cross-platform.
+	// It compensates for Obsidian's stripped GUI PATH by prepending common install
+	// prefixes. On Windows it also tries each PATHEXT extension.
+	private findBinary(name: string): string | null {
+		// If name contains a path separator the user gave us an explicit path — use it directly.
+		if (name.includes('/') || name.includes('\\')) {
+			try {
+				fs.accessSync(name, fs.constants.X_OK)
+				return name
+			} catch {
+				return null
+			}
+		}
+
+		// Build augmented PATH: prepend common install prefixes that GUI apps often miss.
+		const home = os.homedir()
+		const extraPaths = process.platform === 'win32'
+			? [
+				path.join(home, 'AppData', 'Roaming', 'npm'),            // npm -g on Windows
+				path.join(home, 'AppData', 'Local', 'Programs', 'nodejs'), // nvm-windows
+				'C:\\Program Files\\nodejs',
+				'C:\\ProgramData\\chocolatey\\bin',                        // Chocolatey
+			]
+			: [
+				path.join(home, '.local', 'bin'),                          // pip install --user, pipx
+				path.join(home, '.npm-global', 'bin'),                     // npm -g custom prefix
+				path.join(home, '.yarn', 'bin'),                           // yarn global
+				path.join(home, '.bun', 'bin'),                            // bun
+				'/opt/homebrew/bin',                                        // Homebrew on Apple Silicon
+				'/usr/local/bin',                                           // Homebrew on Intel / npm -g default
+			]
+
+		const rawPath = process.env.PATH ?? ''
+		const augmented = [...extraPaths, ...rawPath.split(path.delimiter)].filter(Boolean)
+
+		// On Windows, also try each PATHEXT extension (e.g. .EXE, .CMD).
+		// On Unix, use empty string so we just try the bare name.
+		const extensions = process.platform === 'win32'
+			? (process.env.PATHEXT ?? '.EXE;.CMD;.BAT;.COM')
+				.split(';')
+				.map(e => e.trim())
+				.filter(Boolean)
+			: ['']
+
+		for (const dir of augmented) {
+			for (const ext of extensions) {
+				const candidate = path.join(dir, name + ext)
+				try {
+					const stat = fs.statSync(candidate)
+					if (!stat.isFile()) continue
+					// On Windows, file existence is sufficient (no execute bit concept).
+					// On Unix, verify the execute bit is set.
+					if (process.platform !== 'win32') {
+						fs.accessSync(candidate, fs.constants.X_OK)
+					}
+					return candidate
+				} catch {
+					// not found or not executable — try next
+				}
+			}
+		}
+
+		return null
+	}
+
+	// runGeminiCLI resolves the binary via PATH walk then runs it with execFile.
+	// If cliPath contains a path separator it is used directly (explicit user override).
+	// Otherwise the name is resolved by walking the augmented PATH.
+	runGeminiCLI(cliPath: string, input: string): Promise<string> {
+		return new Promise((resolve, reject) => {
+		const resolvedPath = this.findBinary(cliPath)
+		if (!resolvedPath) {
+			const err = Object.assign(
+				new Error(
+					`Gemini CLI "${cliPath}" not found in PATH. ` +
+					`Install it (e.g. npm install -g @google/gemini-cli) ` +
+					`or set the full path in Lava Claw settings.`
+				),
+				{code: 'ENOENT'}
+			)
+			reject(err)
+			return
+		}
+
+			execFile(resolvedPath, ['--prompt', input], {
+				timeout: 120_000,
+				maxBuffer: 10 * 1024 * 1024,
+				env: {
+					...process.env,
+					HOME: process.env.HOME ?? os.homedir(),
+				},
+			}, (error, stdout, stderr) => {
+				if (error) {
+					const detail = stderr?.trim() ? `\nStderr: ${stderr.trim()}` : ''
+					error.message = `${error.message}${detail}`
+					// error from execFile is always an Error instance
+					// eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+					reject(error)
+					return
+				}
+				resolve(stdout)
+			})
+		})
 	}
 }
