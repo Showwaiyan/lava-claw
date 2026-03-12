@@ -157,6 +157,8 @@ class AuthService {
 
 `AuthService` receives `app: App` (for vault file access) and `plugin: Plugin` (for `saveData`) via constructor.
 
+`AuthService` maintains an in-memory cache of loaded credentials (a `Map<providerId, StoredCreds>`). `isAuthenticated` checks the cache synchronously — no disk read. The cache is populated on first `getToken` call (lazy load from disk) and invalidated on `signOut`.
+
 **`src/ui/oauth-modal.ts` — `OAuthModal`**
 
 Simple `Modal` subclass:
