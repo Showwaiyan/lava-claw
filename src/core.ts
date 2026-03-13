@@ -7,6 +7,7 @@ import {SkillsService} from './services/skills'
 import {GeminiService} from './services/gemini'
 import {AgentRunner} from './services/agent-runner'
 import {TelegramService} from './services/telegram'
+import {SleepPreventionService} from './services/sleep-prevention'
 import {ChatView, CHAT_VIEW_TYPE} from './ui/chat-view'
 import {ToolRegistry} from './tools/index'
 import type {ToolContext} from './tools/index'
@@ -27,6 +28,7 @@ export class PluginCore {
 	gemini!: GeminiService
 	agentRunner!: AgentRunner
 	telegram!: TelegramService
+	sleepPrevention!: SleepPreventionService
 	chatView: ChatView | null = null
 
 	constructor(app: App, settings: LavaClawSettings, saveSettings: () => Promise<void>) {
@@ -85,6 +87,11 @@ export class PluginCore {
 		this.registerService(telegram)
 		await telegram.init()
 		this.telegram = telegram
+
+		const sleepPrevention = new SleepPreventionService(this.settings)
+		this.registerService(sleepPrevention)
+		await sleepPrevention.init()
+		this.sleepPrevention = sleepPrevention
 	}
 
 	async destroy(): Promise<void> {

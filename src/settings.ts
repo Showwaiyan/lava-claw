@@ -23,6 +23,7 @@ export interface LavaClawSettings {
 	telegram: TelegramSettings
 	vault: VaultPermissions
 	workspacePath: string
+	preventSleep: boolean
 }
 
 export const DEFAULT_SETTINGS: LavaClawSettings = {
@@ -47,6 +48,7 @@ export const DEFAULT_SETTINGS: LavaClawSettings = {
 		delete: false,
 	},
 	workspacePath: '.lava-claw',
+	preventSleep: false,
 }
 
 class GitHubSkillModal extends Modal {
@@ -86,6 +88,18 @@ export class LavaClawSettingTab extends PluginSettingTab {
 		containerEl.empty()
 
 		// ── General ──────────────────────────────────────────────
+		
+
+		new Setting(containerEl)
+			.setName('Prevent system sleep')
+			.setDesc('Prevents macOS from sleeping while the plugin is active.')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.preventSleep)
+				.onChange(async (value) => {
+					this.plugin.settings.preventSleep = value
+					await this.plugin.saveSettings()
+					await this.plugin.core.restartService('sleep-prevention')
+				}))
 
 		new Setting(containerEl)
 			.setName('Workspace folder path')
