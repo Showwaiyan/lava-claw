@@ -102,6 +102,16 @@ export class TelegramService implements Service {
 		const userTurn: ConversationTurn = {role: 'user', content: text, timestamp: Date.now()}
 		await this.memory.appendToDaily(userTurn)
 
+		const chatId = ctx.chat!.id
+
+		// Show typing indicator immediately
+		void ctx.api.sendChatAction(chatId, 'typing').catch(() => { /* ignore */ })
+
+		// Keep typing indicator alive for the full duration of the agent run
+		const typingInterval = setInterval(() => {
+			void ctx.api.sendChatAction(chatId, 'typing').catch(() => { /* ignore */ })
+		}, 4000)
+
 		try {
 			const response = await this.agentRunner.run(this.session, text)
 			const assistantTurn: ConversationTurn = {role: 'assistant', content: response, timestamp: Date.now()}
@@ -110,6 +120,8 @@ export class TelegramService implements Service {
 		} catch (e) {
 			const msg = e instanceof Error ? e.message : String(e)
 			await ctx.reply(`Error: ${msg}`)
+		} finally {
+			clearInterval(typingInterval)
 		}
 	}
 
