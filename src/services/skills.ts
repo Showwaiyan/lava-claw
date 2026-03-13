@@ -106,6 +106,28 @@ export class SkillsService implements Service {
 		this.index.delete(name)
 	}
 
+	async addSkill(name: string, content: string, useFolder = false): Promise<void> {
+		const adapter = this.app.vault.adapter
+		let dest: string
+		if (useFolder) {
+			dest = `${this.skillsPath}/${name}/SKILL.md`
+			const folderPath = `${this.skillsPath}/${name}`
+			if (!(await adapter.exists(folderPath))) {
+				await adapter.mkdir(folderPath)
+			}
+		} else {
+			dest = `${this.skillsPath}/${name}.md`
+		}
+		await adapter.write(dest, content)
+		this.index.set(name, {name, path: dest, content})
+	}
+
+	async readSkill(name: string): Promise<string> {
+		const skill = this.index.get(name)
+		if (!skill) throw new Error(`Skill not found: ${name}`)
+		return skill.content
+	}
+
 	private toRawGitHubUrl(url: string): string {
 		// Convert github.com blob URLs to raw.githubusercontent.com
 		// e.g. https://github.com/user/repo/blob/main/file.md

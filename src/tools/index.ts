@@ -2,12 +2,14 @@ import type {FunctionDeclaration} from '@google/generative-ai'
 import type {App} from 'obsidian'
 import type {VaultService} from '../services/vault'
 import type {MemoryService} from '../services/memory'
+import type {SkillsService} from '../services/skills'
 import type {LavaClawSettings} from '../settings'
 
 export interface ToolContext {
 	app: App
 	vault: VaultService
 	memory: MemoryService
+	skills: SkillsService
 	settings: LavaClawSettings
 }
 

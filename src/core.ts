@@ -13,6 +13,7 @@ import type {ToolContext} from './tools/index'
 import {registerVaultTools} from './tools/vault'
 import {registerWorkspaceTools} from './tools/workspace'
 import {registerMemoryTools} from './tools/memory'
+import {registerSkillsTools} from './tools/skills'
 
 export class PluginCore {
 	private app: App
@@ -60,6 +61,7 @@ export class PluginCore {
 		registerVaultTools(this.toolRegistry)
 		registerWorkspaceTools(this.toolRegistry)
 		registerMemoryTools(this.toolRegistry)
+		registerSkillsTools(this.toolRegistry)
 		gemini.setToolDeclarations(this.toolRegistry.getDefinitions())
 
 		// Build tool context
@@ -67,6 +69,7 @@ export class PluginCore {
 			app: this.app,
 			vault: this.vault,
 			memory: this.memory,
+			skills: this.skills,
 			settings: this.settings,
 		}
 
