@@ -128,4 +128,32 @@ export class VaultService implements Service {
 		if (!(file instanceof TFile)) throw new Error(`Note not found: ${path}`)
 		await this.fileManager.trashFile(file)
 	}
+
+	async moveNote(path: string, newPath: string): Promise<void> {
+		if (!this.permissions.update) throw new PermissionError('update')
+		const file = this.vault.getFileByPath(path)
+		if (!(file instanceof TFile)) throw new Error(`Note not found: ${path}`)
+		await this.fileManager.renameFile(file, newPath)
+	}
+
+	async copyNote(path: string, newPath: string): Promise<void> {
+		if (!this.permissions.read) throw new PermissionError('read')
+		if (!this.permissions.create) throw new PermissionError('create')
+		const content = await this.vault.adapter.read(path)
+		await this.vault.create(newPath, content)
+	}
+
+	async createFolder(path: string): Promise<void> {
+		if (!this.permissions.create) throw new PermissionError('create')
+		const exists = await this.vault.adapter.exists(path)
+		if (exists) throw new Error(`Folder already exists: ${path}`)
+		await this.vault.adapter.mkdir(path)
+	}
+
+	async deleteFolder(path: string): Promise<void> {
+		if (!this.permissions.delete) throw new PermissionError('delete')
+		const folder = this.vault.getFolderByPath(path)
+		if (!folder) throw new Error(`Folder not found: ${path}`)
+		await this.vault.delete(folder, true)
+	}
 }

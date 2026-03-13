@@ -159,4 +159,110 @@ export function registerVaultTools(registry: import('./index').ToolRegistry): vo
 	registry.register(patchNoteTool)
 	registry.register(searchVaultTool)
 	registry.register(deleteNoteTool)
+	registry.register(moveNoteTool)
+	registry.register(copyNoteTool)
+	registry.register(createFolderTool)
+	registry.register(deleteFolderTool)
+}
+
+export const moveNoteTool: Tool = {
+	definition: {
+		name: 'move_note',
+		description: 'Rename or move a note to a different folder.',
+		parameters: {
+			type: SchemaType.OBJECT,
+			properties: {
+				path: {type: SchemaType.STRING, description: 'Current vault-relative path'},
+				new_path: {type: SchemaType.STRING, description: 'New vault-relative path'},
+			},
+			required: ['path', 'new_path'],
+		},
+	},
+	async execute(args, ctx) {
+		const notePath = args['path']
+		const newPath = args['new_path']
+		if (typeof notePath !== 'string') return 'Error: path must be a string'
+		if (typeof newPath !== 'string') return 'Error: new_path must be a string'
+		try {
+			await ctx.vault.moveNote(notePath, newPath)
+			return `Moved: ${notePath} → ${newPath}`
+		} catch (e) {
+			return `Error: ${e instanceof Error ? e.message : String(e)}`
+		}
+	},
+}
+
+export const copyNoteTool: Tool = {
+	definition: {
+		name: 'copy_note',
+		description: 'Duplicate a note to a new location.',
+		parameters: {
+			type: SchemaType.OBJECT,
+			properties: {
+				path: {type: SchemaType.STRING, description: 'Source vault-relative path'},
+				new_path: {type: SchemaType.STRING, description: 'Destination vault-relative path'},
+			},
+			required: ['path', 'new_path'],
+		},
+	},
+	async execute(args, ctx) {
+		const notePath = args['path']
+		const newPath = args['new_path']
+		if (typeof notePath !== 'string') return 'Error: path must be a string'
+		if (typeof newPath !== 'string') return 'Error: new_path must be a string'
+		try {
+			await ctx.vault.copyNote(notePath, newPath)
+			return `Copied: ${notePath} → ${newPath}`
+		} catch (e) {
+			return `Error: ${e instanceof Error ? e.message : String(e)}`
+		}
+	},
+}
+
+export const createFolderTool: Tool = {
+	definition: {
+		name: 'create_folder',
+		description: 'Create a new folder in the vault.',
+		parameters: {
+			type: SchemaType.OBJECT,
+			properties: {
+				path: {type: SchemaType.STRING, description: 'Vault-relative path for the new folder'},
+			},
+			required: ['path'],
+		},
+	},
+	async execute(args, ctx) {
+		const folderPath = args['path']
+		if (typeof folderPath !== 'string') return 'Error: path must be a string'
+		try {
+			await ctx.vault.createFolder(folderPath)
+			return `Created folder: ${folderPath}`
+		} catch (e) {
+			return `Error: ${e instanceof Error ? e.message : String(e)}`
+		}
+	},
+}
+
+export const deleteFolderTool: Tool = {
+	definition: {
+		name: 'delete_folder',
+		description: 'Delete a folder and all its contents (moves to trash).',
+		parameters: {
+			type: SchemaType.OBJECT,
+			properties: {
+				path: {type: SchemaType.STRING, description: 'Vault-relative path to the folder'},
+			},
+			required: ['path'],
+		},
+	},
+	async execute(args, ctx) {
+		const folderPath = args['path']
+		if (typeof folderPath !== 'string') return 'Error: path must be a string'
+		try {
+			await ctx.vault.deleteFolder(folderPath)
+			return `Deleted folder: ${folderPath}`
+		} catch (e) {
+			return `Error: ${e instanceof Error ? e.message : String(e)}`
+		}
+	},
 }
