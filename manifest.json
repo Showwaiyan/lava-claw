@@ -1,7 +1,7 @@
 {
 	"id": "lava-claw",
 	"name": "Lava Claw",
-	"version": "1.0.1",
+	"version": "1.2.0",
 	"minAppVersion": "0.15.0",
 	"description": "Personal AI assistant embedded in Obsidian. Powered by Gemini, connected via Telegram.",
 	"author": "lava-claw",
