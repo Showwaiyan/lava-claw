@@ -4,11 +4,11 @@ import type {Tool} from './index'
 export const readNoteTool: Tool = {
 	definition: {
 		name: 'read_note',
-		description: 'Read the full content of a vault note by its path.',
+		description: 'Read the full content of a vault note by its path. Supports subfolders.',
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
-				path: {type: SchemaType.STRING, description: 'Vault-relative path, e.g. "folder/note.md"'},
+				path: {type: SchemaType.STRING, description: 'Vault-relative path (e.g., "Notes/readme.md", "folder/file.md")'},
 			},
 			required: ['path'],
 		},
@@ -27,11 +27,11 @@ export const readNoteTool: Tool = {
 export const writeNoteTool: Tool = {
 	definition: {
 		name: 'write_note',
-		description: 'Create a new vault note or overwrite an existing one entirely.',
+		description: 'Create a new vault note or overwrite an existing one entirely. Supports subfolders.',
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
-				path: {type: SchemaType.STRING, description: 'Vault-relative path for the note'},
+				path: {type: SchemaType.STRING, description: 'Vault-relative path (e.g., "Notes/meeting.md", "folder/subfolder/note.md")'},
 				content: {type: SchemaType.STRING, description: 'Full markdown content'},
 			},
 			required: ['path', 'content'],
@@ -54,11 +54,11 @@ export const writeNoteTool: Tool = {
 export const appendNoteTool: Tool = {
 	definition: {
 		name: 'append_note',
-		description: 'Append content to the end of an existing vault note.',
+		description: 'Append content to the end of an existing vault note. Supports subfolders.',
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
-				path: {type: SchemaType.STRING, description: 'Vault-relative path to the note'},
+				path: {type: SchemaType.STRING, description: 'Vault-relative path (e.g., "Notes/log.md", "folder/file.md")'},
 				content: {type: SchemaType.STRING, description: 'Content to append'},
 			},
 			required: ['path', 'content'],
