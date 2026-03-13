@@ -117,6 +117,9 @@ export class TelegramService implements Service {
 			const assistantTurn: ConversationTurn = {role: 'assistant', content: response, timestamp: Date.now()}
 			await this.memory.appendToDaily(assistantTurn)
 			if (response) await ctx.reply(response, {parse_mode: 'Markdown'})
+
+			// Extract important information to memory.md (internal, not shown to user)
+			void this.agentRunner.extractMemory(this.session).catch(() => { /* ignore */ })
 		} catch (e) {
 			const msg = e instanceof Error ? e.message : String(e)
 			await ctx.reply(`Error: ${msg}`)

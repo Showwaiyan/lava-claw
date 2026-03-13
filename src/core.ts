@@ -125,6 +125,9 @@ export class PluginCore {
 			}
 			await source.reply(assistantTurn)
 			await this.memory.appendToDaily(assistantTurn)
+
+			// Extract important information to memory.md (internal, not shown to user)
+			void this.agentRunner.extractMemory(this.chatSession).catch(() => { /* ignore */ })
 		} catch (e) {
 			const msg = e instanceof Error ? e.message : String(e)
 			const errorTurn: ConversationTurn = {

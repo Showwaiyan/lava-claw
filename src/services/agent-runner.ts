@@ -3,6 +3,12 @@ import type {ToolRegistry, ToolContext} from '../tools/index'
 
 const MAX_ITERATIONS = 10
 
+const MEMORY_EXTRACTION_PROMPT = `Review the conversation above. Was anything important enough to remember long-term (preferences, personal info, key decisions, important facts)?
+
+If YES: Use the write_memory tool to update memory.md with the important information. Keep it concise - only what truly matters for future conversations.
+
+If NO: Just acknowledge briefly (e.g., "No important information to save"). Do NOT use write_memory if there's nothing important.`
+
 export class AgentRunner {
 	private registry: ToolRegistry
 	private ctx: ToolContext
@@ -64,5 +70,9 @@ export class AgentRunner {
 
 			parts = toolResponseParts
 		}
+	}
+
+	async extractMemory(session: ChatSession): Promise<void> {
+		await this.run(session, MEMORY_EXTRACTION_PROMPT)
 	}
 }
