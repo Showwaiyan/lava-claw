@@ -79,6 +79,56 @@ export const writeMemoryTool: Tool = {
 	},
 }
 
+export const readWorkspaceFileTool: Tool = {
+	definition: {
+		name: 'read_workspace_file',
+		description: 'Read a file from the workspace folder (.lava-claw/). Use for IDENTITY.md, USER.md, etc.',
+		parameters: {
+			type: SchemaType.OBJECT,
+			properties: {
+				filename: {type: SchemaType.STRING, description: 'Filename only (e.g., "IDENTITY.md", "USER.md")'},
+			},
+			required: ['filename'],
+		},
+	},
+	async execute(args, ctx: ToolContext) {
+		const filename = args['filename']
+		if (typeof filename !== 'string') return 'Error: filename must be a string'
+		try {
+			return await ctx.memory.readWorkspaceFile(filename)
+		} catch (e) {
+			return `Error: ${e instanceof Error ? e.message : String(e)}`
+		}
+	},
+}
+
+export const writeWorkspaceFileTool: Tool = {
+	definition: {
+		name: 'write_workspace_file',
+		description: 'Write to a file in the workspace folder (.lava-claw/). Use for IDENTITY.md, USER.md, etc.',
+		parameters: {
+			type: SchemaType.OBJECT,
+			properties: {
+				filename: {type: SchemaType.STRING, description: 'Filename only (e.g., "IDENTITY.md", "USER.md")'},
+				content: {type: SchemaType.STRING, description: 'Full content to write'},
+			},
+			required: ['filename', 'content'],
+		},
+	},
+	async execute(args, ctx: ToolContext) {
+		const filename = args['filename']
+		const content = args['content']
+		if (typeof filename !== 'string') return 'Error: filename must be a string'
+		if (typeof content !== 'string') return 'Error: content must be a string'
+		try {
+			await ctx.memory.writeWorkspaceFile(filename, content)
+			return `${filename} updated.`
+		} catch (e) {
+			return `Error: ${e instanceof Error ? e.message : String(e)}`
+		}
+	},
+}
+
 export const appendDailyLogTool: Tool = {
 	definition: {
 		name: 'append_daily_log',
@@ -113,4 +163,6 @@ export function registerMemoryTools(registry: import('./index').ToolRegistry): v
 	registry.register(readMemoryTool)
 	registry.register(writeMemoryTool)
 	registry.register(appendDailyLogTool)
+	registry.register(readWorkspaceFileTool)
+	registry.register(writeWorkspaceFileTool)
 }
