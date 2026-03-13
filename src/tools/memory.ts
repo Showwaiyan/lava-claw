@@ -157,12 +157,37 @@ export const appendDailyLogTool: Tool = {
 	},
 }
 
+export const readDailyLogTool: Tool = {
+	definition: {
+		name: 'read_daily_log',
+		description: "Read a past daily log from memory/. Use when you need to recall past conversations. Format: YYYY-MM-DD.",
+		parameters: {
+			type: SchemaType.OBJECT,
+			properties: {
+				date: {type: SchemaType.STRING, description: 'Date in YYYY-MM-DD format (e.g., "2026-03-13")'},
+			},
+			required: ['date'],
+		},
+	},
+	async execute(args, ctx: ToolContext) {
+		const date = args['date']
+		if (typeof date !== 'string') return 'Error: date must be a string'
+		try {
+			const content = await ctx.memory.readDailyLog(date)
+			return `## ${date}\n${content}`
+		} catch (e) {
+			return `Error: ${e instanceof Error ? e.message : String(e)}`
+		}
+	},
+}
+
 export function registerMemoryTools(registry: import('./index').ToolRegistry): void {
 	registry.register(readSoulTool)
 	registry.register(writeSoulTool)
 	registry.register(readMemoryTool)
 	registry.register(writeMemoryTool)
 	registry.register(appendDailyLogTool)
+	registry.register(readDailyLogTool)
 	registry.register(readWorkspaceFileTool)
 	registry.register(writeWorkspaceFileTool)
 }

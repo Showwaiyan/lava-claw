@@ -157,6 +157,12 @@ export class MemoryService implements Service {
 		await this.vault.adapter.write(path, content)
 	}
 
+	async readDailyLog(date: string): Promise<string> {
+		// date format: YYYY-MM-DD
+		const path = `${this.workspacePath}/memory/${date}.md`
+		return this.vault.adapter.read(path)
+	}
+
 	private todayPath(): string {
 		const d = new Date()
 		const yyyy = d.getFullYear()
