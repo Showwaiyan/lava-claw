@@ -1,7 +1,11 @@
-import {App, FileManager, TFile, Vault} from 'obsidian'
+import {App, FileManager, Notice, TFile, Vault} from 'obsidian'
+import {exec} from 'child_process'
+import { promisify } from 'util'
 import type {Service, VaultPermissions} from '../types'
 import {PermissionError} from '../types'
 import type {LavaClawSettings} from '../settings'
+
+const execAsync = promisify(exec)
 
 export class VaultService implements Service {
 	readonly id = 'vault'
@@ -155,5 +159,20 @@ export class VaultService implements Service {
 		const folder = this.vault.getFolderByPath(path)
 		if (!folder) throw new Error(`Folder not found: ${path}`)
 		await this.vault.delete(folder, true)
+	}
+
+	async gitClone(repoUrl: string, folderPath?: string): Promise<string> {
+		if (!this.permissions.create) throw new PermissionError('create')
+
+		const targetPath = folderPath || '.'
+
+		try {
+			await execAsync(`git clone "${repoUrl}" "${targetPath}"`)
+			new Notice(`Cloned: ${repoUrl} to ${targetPath}`)
+			return `Cloned ${repoUrl} to ${targetPath}`
+		} catch (e) {
+			const msg = e instanceof Error ? e.message : String(e)
+			throw new Error(`Git clone failed: ${msg}`)
+		}
 	}
 }

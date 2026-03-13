@@ -163,6 +163,7 @@ export function registerVaultTools(registry: import('./index').ToolRegistry): vo
 	registry.register(copyNoteTool)
 	registry.register(createFolderTool)
 	registry.register(deleteFolderTool)
+	registry.register(gitCloneTool)
 }
 
 export const moveNoteTool: Tool = {
@@ -261,6 +262,32 @@ export const deleteFolderTool: Tool = {
 		try {
 			await ctx.vault.deleteFolder(folderPath)
 			return `Deleted folder: ${folderPath}`
+		} catch (e) {
+			return `Error: ${e instanceof Error ? e.message : String(e)}`
+		}
+	},
+}
+
+export const gitCloneTool: Tool = {
+	definition: {
+		name: 'git_clone',
+		description: 'Clone a git repository into the vault. Use for importing skills from GitHub.',
+		parameters: {
+			type: SchemaType.OBJECT,
+			properties: {
+				repo_url: {type: SchemaType.STRING, description: 'Git repository URL (e.g., https://github.com/user/repo)'},
+				folder: {type: SchemaType.STRING, description: 'Optional: folder name to clone into (defaults to vault root)'},
+			},
+			required: ['repo_url'],
+		},
+	},
+	async execute(args, ctx) {
+		const repoUrl = args['repo_url']
+		const folder = args['folder']
+		if (typeof repoUrl !== 'string') return 'Error: repo_url must be a string'
+		if (folder !== undefined && typeof folder !== 'string') return 'Error: folder must be a string'
+		try {
+			return await ctx.vault.gitClone(repoUrl, folder)
 		} catch (e) {
 			return `Error: ${e instanceof Error ? e.message : String(e)}`
 		}
