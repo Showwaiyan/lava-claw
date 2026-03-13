@@ -117,6 +117,8 @@ Uses `(window as any).require('fs')` and `(window as any).require('path')` — a
 
 ## PKCE Flow
 
+PKCE generation: `verifier` = 32 random bytes as hex string; `challenge` = `base64url(sha256(verifier))`; `state` = separate 16 random bytes as hex string (independent from verifier, for CSRF protection). Uses `window.require('crypto')` for `randomBytes` and `createHash`.
+
 Auth URL parameters:
 ```
 client_id=<clientId>
@@ -125,12 +127,14 @@ redirect_uri=http://localhost:8085/oauth2callback
 scope=https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile
 code_challenge=<base64url(sha256(verifier))>
 code_challenge_method=S256
-state=<verifier>
+state=<state>
 access_type=offline
 prompt=consent
 ```
 
-Token exchange adds `code_verifier=<verifier>`. Uses `window.require('crypto')` for `randomBytes` and `createHash`.
+Token exchange adds `code_verifier=<verifier>`.
+
+The local server (and manual paste parser) verifies that the returned `state` matches the generated `state` value before proceeding with token exchange. A mismatch rejects with `AuthError('OAuth state mismatch')`.
 
 ---
 
