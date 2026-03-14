@@ -122,6 +122,15 @@ export class VaultService implements Service {
 			await this.vault.modify(file, content)
 		} else {
 			if (!this.permissions.create) throw new PermissionError('create')
+			// Create parent folder if it doesn't exist
+			const lastSlash = path.lastIndexOf('/')
+			if (lastSlash > 0) {
+				const folder = path.substring(0, lastSlash)
+				const exists = await this.vault.adapter.exists(folder)
+				if (!exists) {
+					await this.vault.adapter.mkdir(folder)
+				}
+			}
 			await this.vault.create(path, content)
 		}
 	}
