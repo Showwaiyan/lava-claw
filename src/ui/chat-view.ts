@@ -95,7 +95,7 @@ export class ChatView extends ItemView implements Service, MessageSource {
 		const inputBarEl = contentEl.createDiv({cls: 'lava-claw-input-bar'})
 		this.inputEl = inputBarEl.createEl('textarea', {
 			cls: 'lava-claw-input',
-			attr: {placeholder: 'Message Lava Claw...', rows: '1'},
+			attr: {placeholder: 'Message Lava Claw...', rows: '5'},
 		})
 		this.sendBtn = inputBarEl.createEl('button', {text: '→', cls: 'lava-claw-send-btn'})
 
