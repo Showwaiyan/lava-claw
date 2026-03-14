@@ -95,47 +95,61 @@ export class LavaClawSettingTab extends PluginSettingTab {
 					this.plugin.settings.workspacePath = value || '.lava-claw'
 					await this.plugin.saveSettings()
 					await this.plugin.core.restartService('memory')
-					await this.plugin.core.restartService('skills')
+					void this.plugin.core.restartService('skills')
 				}))
 
-		// ── AI provider ───────────────────────────────────────────
-		new Setting(containerEl).setName('AI provider').setHeading()
+		// ── AI providers ───────────────────────────────────────────
+		new Setting(containerEl).setName('AI providers').setHeading()
 
 		new Setting(containerEl)
-			.setName('API key')
-			.addText(text => text
-				.setPlaceholder('AIza...')
-				.setValue(this.plugin.settings.llm.apiKey)
+			.setName('Enable Gemini')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.llm.apiKey.length > 0)
 				.onChange(async (value) => {
-					this.plugin.settings.llm.apiKey = value
+					if (!value) {
+						this.plugin.settings.llm.apiKey = ''
+					}
 					await this.plugin.saveSettings()
+					this.display()
 				}))
+
+		if (this.plugin.settings.llm.apiKey.length > 0) {
+			new Setting(containerEl)
+				.setName('API key')
+				.addText(text => text
+					.setPlaceholder('AIza...')
+					.setValue(this.plugin.settings.llm.apiKey)
+					.onChange(async (value) => {
+						this.plugin.settings.llm.apiKey = value
+						await this.plugin.saveSettings()
+					}))
 
 		new Setting(containerEl)
 			.setName('Model')
 			.addText(text => text
-				.setPlaceholder(`gemini-2.5-flash${''}`)
+				.setPlaceholder(`gemini-2.0-flash${''}`)
 				.setValue(this.plugin.settings.llm.model)
 				.onChange(async (value) => {
-					this.plugin.settings.llm.model = value
-					await this.plugin.saveSettings()
-					await this.plugin.core.restartService('gemini')
-				}))
+						this.plugin.settings.llm.model = value
+						await this.plugin.saveSettings()
+						void this.plugin.core.restartService('gemini')
+					}))
 
-		new Setting(containerEl)
-			.setName('Conversation history length')
-			.setDesc('Number of past turns to include in each prompt.')
-			.addSlider(slider => slider
-				.setLimits(1, 50, 1)
-				.setValue(this.plugin.settings.llm.historyLength)
-				.setDynamicTooltip()
-				.onChange(async (value) => {
-					this.plugin.settings.llm.historyLength = value
-					await this.plugin.saveSettings()
-				}))
+			new Setting(containerEl)
+				.setName('Conversation history length')
+				.setDesc('Number of past turns to include in each prompt.')
+				.addSlider(slider => slider
+					.setLimits(1, 50, 1)
+					.setValue(this.plugin.settings.llm.historyLength)
+					.setDynamicTooltip()
+					.onChange(async (value) => {
+						this.plugin.settings.llm.historyLength = value
+						await this.plugin.saveSettings()
+					}))
+		}
 
-		// ── Messaging channel ─────────────────────────────────────
-		new Setting(containerEl).setName('Messaging channel').setHeading()
+		// ── Messaging channels ─────────────────────────────────────
+		new Setting(containerEl).setName('Messaging channels').setHeading()
 
 		new Setting(containerEl)
 			.setName('Enable Telegram')
@@ -144,57 +158,60 @@ export class LavaClawSettingTab extends PluginSettingTab {
 				.onChange(async (value) => {
 					this.plugin.settings.telegram.enabled = value
 					await this.plugin.saveSettings()
-					await this.plugin.core.restartService('telegram')
+					void this.plugin.core.restartService('telegram')
+					this.display()
 				}))
 
-		new Setting(containerEl)
-			.setName('Bot token')
-			.setDesc('Get from @BotFather on Telegram.')
-			.addText(text => text
-				.setPlaceholder(`123456:ABC-...${''}`)
-				.setValue(this.plugin.settings.telegram.botToken)
-				.onChange(async (value) => {
-					this.plugin.settings.telegram.botToken = value
-					await this.plugin.saveSettings()
-				}))
+		if (this.plugin.settings.telegram.enabled) {
+			new Setting(containerEl)
+				.setName('Bot token')
+				.setDesc('Get from @BotFather on Telegram.')
+				.addText(text => text
+					.setPlaceholder(`123456:ABC-...${''}`)
+					.setValue(this.plugin.settings.telegram.botToken)
+					.onChange(async (value) => {
+						this.plugin.settings.telegram.botToken = value
+						await this.plugin.saveSettings()
+					}))
 
-		new Setting(containerEl)
-			.setName('Owner Telegram user ID')
-			.setDesc('Your Telegram user ID. Used to authorize messages.')
-			.addText(text => text
-				.setPlaceholder('123456789')
-				.setValue(this.plugin.settings.telegram.ownerUserId)
-				.onChange(async (value) => {
-					this.plugin.settings.telegram.ownerUserId = value
-					await this.plugin.saveSettings()
-				}))
-			.addButton(btn => btn
-				.setButtonText('Detect my ID')
-				.onClick(() => {
-					new Notice('Send any message to your bot to detect your ID.')
-					this.plugin.core.telegram.startDetectMode((userId) => {
-						void (async () => {
-							this.plugin.settings.telegram.ownerUserId = userId
-							await this.plugin.saveSettings()
-							new Notice(`Telegram user ID detected: ${userId}`)
-							this.display()
-						})()
-					})
-				}))
+			new Setting(containerEl)
+				.setName('Owner Telegram user ID')
+				.setDesc('Your Telegram user ID. Used to authorize messages.')
+				.addText(text => text
+					.setPlaceholder('123456789')
+					.setValue(this.plugin.settings.telegram.ownerUserId)
+					.onChange(async (value) => {
+						this.plugin.settings.telegram.ownerUserId = value
+						await this.plugin.saveSettings()
+					}))
+				.addButton(btn => btn
+					.setButtonText('Detect my ID')
+					.onClick(() => {
+						new Notice('Send any message to your bot to detect your ID.')
+						this.plugin.core.telegram.startDetectMode((userId) => {
+							void (async () => {
+								this.plugin.settings.telegram.ownerUserId = userId
+								await this.plugin.saveSettings()
+								new Notice(`Telegram user ID detected: ${userId}`)
+								this.display()
+							})()
+						})
+					}))
 
-		new Setting(containerEl)
-			.setName('Allowed user IDs')
-			.setDesc('Comma-separated Telegram user IDs allowed to use the bot (besides owner).')
-			.addText(text => text
-				.setPlaceholder('111,222,333')
-				.setValue(this.plugin.settings.telegram.allowedUserIds.join(','))
-				.onChange(async (value) => {
-					this.plugin.settings.telegram.allowedUserIds = value
-						.split(',')
-						.map(s => s.trim())
-						.filter(s => s.length > 0)
-					await this.plugin.saveSettings()
-				}))
+			new Setting(containerEl)
+				.setName('Allowed user IDs')
+				.setDesc('Comma-separated Telegram user IDs allowed to use the bot (besides owner).')
+				.addText(text => text
+					.setPlaceholder('111,222,333')
+					.setValue(this.plugin.settings.telegram.allowedUserIds.join(','))
+					.onChange(async (value) => {
+						this.plugin.settings.telegram.allowedUserIds = value
+							.split(',')
+							.map(s => s.trim())
+							.filter(s => s.length > 0)
+						await this.plugin.saveSettings()
+					}))
+		}
 
 		// ── Vault permissions ─────────────────────────────────────
 		new Setting(containerEl).setName('Vault permissions').setHeading()
