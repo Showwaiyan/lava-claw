@@ -77,6 +77,7 @@ class GitHubSkillModal extends Modal {
 
 export class LavaClawSettingTab extends PluginSettingTab {
 	plugin: LavaClawPlugin
+	private modelOptions: string[] = []
 
 	constructor(app: App, plugin: LavaClawPlugin) {
 		super(app, plugin)
@@ -86,6 +87,11 @@ export class LavaClawSettingTab extends PluginSettingTab {
 	display(): void {
 		const {containerEl} = this
 		containerEl.empty()
+
+		const gemini = this.plugin.core.getGeminiService()
+		void gemini.listModels()
+			.then(models => { this.modelOptions = models })
+			.catch(() => { this.modelOptions = [] })
 
 		new Setting(containerEl)
 			.setName('Workspace folder path')
@@ -128,15 +134,21 @@ export class LavaClawSettingTab extends PluginSettingTab {
 					}))
 
 			new Setting(containerEl)
-			.setName('Model')
-			.addText(text => text
-				.setPlaceholder(`gemini-2.0-flash${''}`)
-				.setValue(this.plugin.settings.llm.model)
-				.onChange(async (value) => {
+				.setName('Model')
+				.addDropdown((dropdown) => {
+					const opts = this.modelOptions.length > 0
+						? this.modelOptions
+						: [this.plugin.settings.llm.model]
+					for (const m of opts) {
+						dropdown.addOption(m, m)
+					}
+					dropdown.setValue(this.plugin.settings.llm.model)
+					dropdown.onChange((value) => {
 						this.plugin.settings.llm.model = value
-						await this.plugin.saveSettings()
+						void this.plugin.saveSettings()
 						void this.plugin.core.restartService('gemini')
-					}))
+					})
+				})
 
 			new Setting(containerEl)
 				.setName('Conversation history length')

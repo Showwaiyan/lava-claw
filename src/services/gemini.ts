@@ -1,4 +1,5 @@
 import {FunctionCallingMode, GoogleGenerativeAI} from '@google/generative-ai'
+import {requestUrl} from 'obsidian'
 import type {ChatSession, FunctionDeclaration, Tool as GeminiTool} from '@google/generative-ai'
 import type {Service} from '../types'
 import type {LavaClawSettings} from '../settings'
@@ -43,5 +44,21 @@ export class GeminiService implements Service {
 		})
 
 		return generativeModel.startChat()
+	}
+
+	async listModels(): Promise<string[]> {
+		const {apiKey} = this.settings.llm
+		if (!apiKey) return []
+
+		const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`
+		const response = await requestUrl({url})
+		if (response.status !== 200) {
+			throw new Error(`Failed to fetch models: ${response.status}`)
+		}
+		const data = JSON.parse(response.text) as {models: {name: string}[]}
+		return data.models
+			.filter(m => m.name.startsWith('models/'))
+			.map(m => m.name.replace('models/', ''))
+			.sort()
 	}
 }

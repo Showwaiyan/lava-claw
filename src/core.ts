@@ -181,6 +181,14 @@ export class PluginCore {
 		await svc.init()
 	}
 
+	getGeminiService(): GeminiService {
+		const idx = this.services.findIndex(
+			(s) => (s as unknown as {id?: string}).id === 'gemini'
+		)
+		if (idx === -1) return null as unknown as GeminiService
+		return this.services[idx] as GeminiService
+	}
+
 	protected registerService(svc: Service): void {
 		this.services.push(svc)
 	}
