@@ -3,6 +3,7 @@ import type LavaClawPlugin from './main'
 import type {VaultPermissions} from './types'
 
 export interface LLMSettings {
+	enabled: boolean
 	provider: 'gemini'
 	apiKey: string
 	model: string
@@ -27,6 +28,7 @@ export interface LavaClawSettings {
 
 export const DEFAULT_SETTINGS: LavaClawSettings = {
 	llm: {
+		enabled: false,
 		provider: 'gemini',
 		apiKey: '',
 		model: 'gemini-2.5-flash',
@@ -104,8 +106,9 @@ export class LavaClawSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName('Enable Gemini')
 			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.llm.apiKey.length > 0)
+				.setValue(this.plugin.settings.llm.enabled)
 				.onChange(async (value) => {
+					this.plugin.settings.llm.enabled = value
 					if (!value) {
 						this.plugin.settings.llm.apiKey = ''
 					}
@@ -113,7 +116,7 @@ export class LavaClawSettingTab extends PluginSettingTab {
 					this.display()
 				}))
 
-		if (this.plugin.settings.llm.apiKey.length > 0) {
+		if (this.plugin.settings.llm.enabled) {
 			new Setting(containerEl)
 				.setName('API key')
 				.addText(text => text
@@ -124,7 +127,7 @@ export class LavaClawSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings()
 					}))
 
-		new Setting(containerEl)
+			new Setting(containerEl)
 			.setName('Model')
 			.addText(text => text
 				.setPlaceholder(`gemini-2.0-flash${''}`)
