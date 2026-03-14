@@ -88,10 +88,15 @@ export class LavaClawSettingTab extends PluginSettingTab {
 		const {containerEl} = this
 		containerEl.empty()
 
-		const gemini = this.plugin.core.getGeminiService()
-		void gemini.listModels()
-			.then(models => { this.modelOptions = models })
-			.catch(() => { this.modelOptions = [] })
+		if (this.modelOptions.length === 0) {
+			const gemini = this.plugin.core.getGeminiService()
+			void gemini.listModels()
+				.then(models => {
+					this.modelOptions = models
+					this.display()
+				})
+				.catch(() => { this.modelOptions = [] })
+		}
 
 		new Setting(containerEl)
 			.setName('Workspace folder path')
