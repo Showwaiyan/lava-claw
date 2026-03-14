@@ -161,6 +161,26 @@ export class VaultService implements Service {
 		await this.vault.delete(folder, true)
 	}
 
+	async listFiles(path: string): Promise<string[]> {
+		if (!this.permissions.read) throw new PermissionError('read')
+		const folder = this.vault.getFolderByPath(path)
+		if (!folder) throw new Error(`Folder not found: ${path}`)
+		const files: string[] = []
+		for (const child of folder.children) {
+			if (child instanceof TFile) {
+				files.push(child.path)
+			}
+		}
+		return files.sort()
+	}
+
+	async moveFolder(source: string, destination: string): Promise<void> {
+		if (!this.permissions.update) throw new PermissionError('update')
+		const folder = this.vault.getFolderByPath(source)
+		if (!folder) throw new Error(`Folder not found: ${source}`)
+		await this.fileManager.renameFile(folder, destination)
+	}
+
 	async gitClone(repoUrl: string, folderPath?: string): Promise<string> {
 		if (!this.permissions.create) throw new PermissionError('create')
 

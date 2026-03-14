@@ -163,6 +163,8 @@ export function registerVaultTools(registry: import('./index').ToolRegistry): vo
 	registry.register(copyNoteTool)
 	registry.register(createFolderTool)
 	registry.register(deleteFolderTool)
+	registry.register(listFilesTool)
+	registry.register(moveFolderTool)
 	registry.register(gitCloneTool)
 }
 
@@ -262,6 +264,58 @@ export const deleteFolderTool: Tool = {
 		try {
 			await ctx.vault.deleteFolder(folderPath)
 			return `Deleted folder: ${folderPath}`
+		} catch (e) {
+			return `Error: ${e instanceof Error ? e.message : String(e)}`
+		}
+	},
+}
+
+export const listFilesTool: Tool = {
+	definition: {
+		name: 'list_files',
+		description: 'List all files in a folder.',
+		parameters: {
+			type: SchemaType.OBJECT,
+			properties: {
+				path: {type: SchemaType.STRING, description: 'Vault-relative path to the folder'},
+			},
+			required: ['path'],
+		},
+	},
+	async execute(args, ctx) {
+		const folderPath = args['path']
+		if (typeof folderPath !== 'string') return 'Error: path must be a string'
+		try {
+			const files = await ctx.vault.listFiles(folderPath)
+			if (files.length === 0) return 'No files found in this folder.'
+			return files.join('\n')
+		} catch (e) {
+			return `Error: ${e instanceof Error ? e.message : String(e)}`
+		}
+	},
+}
+
+export const moveFolderTool: Tool = {
+	definition: {
+		name: 'move_folder',
+		description: 'Move or rename a folder.',
+		parameters: {
+			type: SchemaType.OBJECT,
+			properties: {
+				source: {type: SchemaType.STRING, description: 'Current vault-relative path of the folder'},
+				destination: {type: SchemaType.STRING, description: 'New vault-relative path for the folder'},
+			},
+			required: ['source', 'destination'],
+		},
+	},
+	async execute(args, ctx) {
+		const source = args['source']
+		const destination = args['destination']
+		if (typeof source !== 'string') return 'Error: source must be a string'
+		if (typeof destination !== 'string') return 'Error: destination must be a string'
+		try {
+			await ctx.vault.moveFolder(source, destination)
+			return `Moved folder from ${source} to ${destination}`
 		} catch (e) {
 			return `Error: ${e instanceof Error ? e.message : String(e)}`
 		}
