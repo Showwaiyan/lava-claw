@@ -273,7 +273,7 @@ export const deleteFolderTool: Tool = {
 export const listFilesTool: Tool = {
 	definition: {
 		name: 'list_files',
-		description: 'List all files in a folder.',
+		description: 'List all files and folders in a vault folder.',
 		parameters: {
 			type: SchemaType.OBJECT,
 			properties: {
@@ -286,8 +286,8 @@ export const listFilesTool: Tool = {
 		const folderPath = args['path']
 		if (typeof folderPath !== 'string') return 'Error: path must be a string'
 		try {
-			const files = await ctx.vault.listFiles(folderPath)
-			if (files.length === 0) return 'No files found in this folder.'
+			const files = await ctx.vault.listFolder(folderPath)
+			if (files.length === 0) return 'No items found in this folder.'
 			return files.join('\n')
 		} catch (e) {
 			return `Error: ${e instanceof Error ? e.message : String(e)}`

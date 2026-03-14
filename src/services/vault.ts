@@ -161,17 +161,15 @@ export class VaultService implements Service {
 		await this.vault.delete(folder, true)
 	}
 
-	async listFiles(path: string): Promise<string[]> {
+	async listFolder(path: string): Promise<string[]> {
 		if (!this.permissions.read) throw new PermissionError('read')
 		const folder = this.vault.getFolderByPath(path)
 		if (!folder) throw new Error(`Folder not found: ${path}`)
-		const files: string[] = []
+		const items: string[] = []
 		for (const child of folder.children) {
-			if (child instanceof TFile) {
-				files.push(child.path)
-			}
+			items.push(child.path)
 		}
-		return files.sort()
+		return items.sort()
 	}
 
 	async moveFolder(source: string, destination: string): Promise<void> {
