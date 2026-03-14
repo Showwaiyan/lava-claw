@@ -52,6 +52,7 @@ export default class LavaClawPlugin extends Plugin {
 	}
 
 	async saveSettings() {
+		this.core.updateSettings(this.settings)
 		await this.saveData(this.settings)
 	}
 }
