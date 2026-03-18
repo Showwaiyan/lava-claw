@@ -4,7 +4,7 @@ import type {VaultPermissions} from './types'
 
 export interface LLMSettings {
 	enabled: boolean
-	provider: 'gemini'
+	provider: 'gemini' | 'opencode'
 	apiKey: string
 	model: string
 	historyLength: number
@@ -78,25 +78,18 @@ class GitHubSkillModal extends Modal {
 export class LavaClawSettingTab extends PluginSettingTab {
 	plugin: LavaClawPlugin
 	private modelOptions: string[] = []
+	private opencodeModelOptions: string[] = []
+	private currentProvider: 'gemini' | 'opencode' = 'gemini'
 
 	constructor(app: App, plugin: LavaClawPlugin) {
 		super(app, plugin)
 		this.plugin = plugin
+		this.currentProvider = this.plugin.settings.llm.provider
 	}
 
 	display(): void {
 		const {containerEl} = this
 		containerEl.empty()
-
-		if (this.modelOptions.length === 0) {
-			const gemini = this.plugin.core.getGeminiService()
-			void gemini.listModels()
-				.then(models => {
-					this.modelOptions = models
-					this.display()
-				})
-				.catch(() => { this.modelOptions = [] })
-		}
 
 		new Setting(containerEl)
 			.setName('Workspace folder path')
@@ -115,21 +108,36 @@ export class LavaClawSettingTab extends PluginSettingTab {
 		new Setting(containerEl).setName('AI providers').setHeading()
 
 		new Setting(containerEl)
-			.setName('Enable Gemini')
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.llm.enabled)
-				.onChange(async (value) => {
-					this.plugin.settings.llm.enabled = value
-					if (!value) {
-						this.plugin.settings.llm.apiKey = ''
-					}
+			.setName('Provider')
+			.addDropdown(dropdown => {
+				dropdown.addOption('gemini', 'Gemini')
+				dropdown.addOption('opencode', 'OpenCode zen')
+				dropdown.setValue(this.plugin.settings.llm.provider)
+				dropdown.onChange(async (value) => {
+					this.plugin.settings.llm.provider = value as 'gemini' | 'opencode'
+					this.currentProvider = value as 'gemini' | 'opencode'
 					await this.plugin.saveSettings()
 					this.display()
-				}))
+				})
+			})
 
-		if (this.plugin.settings.llm.enabled) {
+		const provider = this.plugin.settings.llm.provider
+		const isGemini = provider === 'gemini'
+		const isOpenCode = provider === 'opencode'
+
+		if (isGemini) {
+			if (this.modelOptions.length === 0) {
+				const gemini = this.plugin.core.getGeminiService()
+				void gemini.listModels()
+					.then(models => {
+						this.modelOptions = models
+						this.display()
+					})
+					.catch(() => { this.modelOptions = [] })
+			}
+
 			new Setting(containerEl)
-				.setName('API key')
+				.setName('Gemini API key')
 				.addText(text => text
 					.setPlaceholder('AIza...')
 					.setValue(this.plugin.settings.llm.apiKey)
@@ -139,7 +147,7 @@ export class LavaClawSettingTab extends PluginSettingTab {
 					}))
 
 			new Setting(containerEl)
-				.setName('Model')
+				.setName('Gemini model')
 				.addDropdown((dropdown) => {
 					const opts = this.modelOptions.length > 0
 						? this.modelOptions
@@ -154,19 +162,58 @@ export class LavaClawSettingTab extends PluginSettingTab {
 						void this.plugin.core.restartService('gemini')
 					})
 				})
+		}
+
+		if (isOpenCode) {
+			if (this.opencodeModelOptions.length === 0) {
+				const opencode = this.plugin.core.getOpenCodeService()
+				void opencode.listModels()
+					.then(models => {
+						this.opencodeModelOptions = models
+						this.display()
+					})
+					.catch(() => { this.opencodeModelOptions = [] })
+			}
 
 			new Setting(containerEl)
-				.setName('Conversation history length')
-				.setDesc('Number of past turns to include in each prompt.')
-				.addSlider(slider => slider
-					.setLimits(1, 50, 1)
-					.setValue(this.plugin.settings.llm.historyLength)
-					.setDynamicTooltip()
+				.setName('OpenCode API key')
+				.addText(text => text
+					.setPlaceholder('Sk-...')
+					.setValue(this.plugin.settings.llm.apiKey)
 					.onChange(async (value) => {
-						this.plugin.settings.llm.historyLength = value
+						this.plugin.settings.llm.apiKey = value
 						await this.plugin.saveSettings()
 					}))
+
+			new Setting(containerEl)
+				.setName('OpenCode model')
+				.addDropdown((dropdown) => {
+					const opts = this.opencodeModelOptions.length > 0
+						? this.opencodeModelOptions
+						: [this.plugin.settings.llm.model]
+					for (const m of opts) {
+						dropdown.addOption(m, m)
+					}
+					dropdown.setValue(this.plugin.settings.llm.model)
+					dropdown.onChange((value) => {
+						this.plugin.settings.llm.model = value
+						void this.plugin.saveSettings()
+						void this.plugin.core.restartService('opencode')
+					})
+				})
 		}
+
+		new Setting(containerEl)
+			.setName('Conversation history length')
+			.setDesc('Number of past turns to include in each prompt.')
+			.addSlider(slider => slider
+				.setLimits(1, 50, 1)
+				.setValue(this.plugin.settings.llm.historyLength)
+				.setDynamicTooltip()
+				.onChange(async (value) => {
+					this.plugin.settings.llm.historyLength = value
+					await this.plugin.saveSettings()
+				}))
 
 		// ── Messaging channels ─────────────────────────────────────
 		new Setting(containerEl).setName('Messaging channels').setHeading()

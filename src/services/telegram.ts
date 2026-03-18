@@ -1,8 +1,9 @@
 import {Notice} from 'obsidian'
 import {Bot, Context} from 'grammy'
-import type {Service, ConversationTurn} from '../types'
+import type {Service, ConversationTurn, LLMSession} from '../types'
 import type {LavaClawSettings} from '../settings'
 import type {GeminiService} from './gemini'
+import type {OpenCodeService} from './opencode'
 import type {AgentRunner} from './agent-runner'
 import type {MemoryService} from './memory'
 
@@ -12,21 +13,25 @@ export class TelegramService implements Service {
 	readonly id = 'telegram'
 	private settings: LavaClawSettings
 	private gemini: GeminiService
+	private opencode: OpenCodeService
 	private agentRunner: AgentRunner
 	private memory: MemoryService
 	private saveSettings: SaveSettingsFn
 	private bot: Bot | null = null
-	private session: import('@google/generative-ai').ChatSession | null = null
+	private geminiSession: import('@google/generative-ai').ChatSession | null = null
+	private opencodeSession: LLMSession | null = null
 
 	constructor(
 		settings: LavaClawSettings,
 		gemini: GeminiService,
+		opencode: OpenCodeService,
 		agentRunner: AgentRunner,
 		memory: MemoryService,
 		saveSettings: SaveSettingsFn
 	) {
 		this.settings = settings
 		this.gemini = gemini
+		this.opencode = opencode
 		this.agentRunner = agentRunner
 		this.memory = memory
 		this.saveSettings = saveSettings
@@ -39,8 +44,13 @@ export class TelegramService implements Service {
 		try {
 			this.bot = new Bot(botToken)
 
+			const provider = this.settings.llm.provider
 			const systemPrompt = await this.memory.getContext()
-			this.session = this.gemini.createSession(systemPrompt)
+			if (provider === 'opencode') {
+				this.opencodeSession = this.opencode.createSession(systemPrompt)
+			} else {
+				this.geminiSession = this.gemini.createSession(systemPrompt)
+			}
 
 			this.bot.on('message:text', (ctx) => this.onMessage(ctx))
 			void this.bot.start({
@@ -58,7 +68,8 @@ export class TelegramService implements Service {
 			await this.bot.stop()
 			this.bot = null
 		}
-		this.session = null
+		this.geminiSession = null
+		this.opencodeSession = null
 	}
 
 	private isAuthorized(userId: string): boolean {
@@ -94,9 +105,20 @@ export class TelegramService implements Service {
 		}
 
 		// Lazily create session if not already initialized
-		if (!this.session) {
-			const systemPrompt = await this.memory.getContext()
-			this.session = this.gemini.createSession(systemPrompt)
+		const provider = this.settings.llm.provider
+		let session: LLMSession
+		if (provider === 'opencode') {
+			if (!this.opencodeSession) {
+				const systemPrompt = await this.memory.getContext()
+				this.opencodeSession = this.opencode.createSession(systemPrompt)
+			}
+			session = this.opencodeSession
+		} else {
+			if (!this.geminiSession) {
+				const systemPrompt = await this.memory.getContext()
+				this.geminiSession = this.gemini.createSession(systemPrompt)
+			}
+			session = this.geminiSession as unknown as LLMSession
 		}
 
 		const userTurn: ConversationTurn = {role: 'user', content: text, timestamp: Date.now()}
@@ -113,13 +135,13 @@ export class TelegramService implements Service {
 		}, 4000)
 
 		try {
-			const response = await this.agentRunner.run(this.session, text)
+			const response = await this.agentRunner.run(session, text)
 			const assistantTurn: ConversationTurn = {role: 'assistant', content: response, timestamp: Date.now()}
 			await this.memory.appendToDaily(assistantTurn)
 			if (response) await ctx.reply(response, {parse_mode: 'Markdown'})
 
 			// Extract important information to memory.md (internal, not shown to user)
-			void this.agentRunner.extractMemory(this.session).catch(() => { /* ignore */ })
+			void this.agentRunner.extractMemory(session).catch(() => { /* ignore */ })
 		} catch (e) {
 			const msg = e instanceof Error ? e.message : String(e)
 			await ctx.reply(`Error: ${msg}`)

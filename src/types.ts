@@ -3,6 +3,27 @@ export interface Service {
 	destroy(): Promise<void>
 }
 
+export interface MessagePart {
+	text?: string
+	functionCall?: {
+		name: string
+		args: Record<string, unknown>
+	}
+	functionResponse?: {
+		name: string
+		response: {output: string}
+	}
+}
+
+export interface LLMResponse {
+	text(): string
+	functionCalls(): Array<{name: string; args: Record<string, unknown>}>
+}
+
+export interface LLMSession {
+	sendMessage(parts: MessagePart[]): Promise<LLMResponse>
+}
+
 export interface ConversationTurn {
 	role: 'user' | 'assistant'
 	content: string

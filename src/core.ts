@@ -5,6 +5,7 @@ import {MemoryService} from './services/memory'
 import {VaultService} from './services/vault'
 import {SkillsService} from './services/skills'
 import {GeminiService} from './services/gemini'
+import {OpenCodeService} from './services/opencode'
 import {AgentRunner} from './services/agent-runner'
 import {TelegramService} from './services/telegram'
 import {ChatView, CHAT_VIEW_TYPE} from './ui/chat-view'
@@ -21,11 +22,13 @@ export class PluginCore {
 	private saveSettingsFn: () => Promise<void>
 	private services: Service[] = []
 	private chatSession: import('@google/generative-ai').ChatSession | null = null
+	private opencodeSession: import('./types').LLMSession | null = null
 	private toolRegistry: ToolRegistry = new ToolRegistry()
 	memory!: MemoryService
 	vault!: VaultService
 	skills!: SkillsService
 	gemini!: GeminiService
+	opencode!: OpenCodeService
 	agentRunner!: AgentRunner
 	telegram!: TelegramService
 	chatView: ChatView | null = null
@@ -57,12 +60,18 @@ export class PluginCore {
 		await gemini.init()
 		this.gemini = gemini
 
+		const opencode = new OpenCodeService(this.settings)
+		this.registerService(opencode)
+		await opencode.init()
+		this.opencode = opencode
+
 		// Register tools
 		registerVaultTools(this.toolRegistry)
 		registerWorkspaceTools(this.toolRegistry)
 		registerMemoryTools(this.toolRegistry)
 		registerSkillsTools(this.toolRegistry)
 		gemini.setToolDeclarations(this.toolRegistry.getDefinitions())
+		opencode.setToolDeclarations(this.toolRegistry.getDefinitions())
 
 		// Build tool context
 		const toolCtx: ToolContext = {
@@ -81,6 +90,7 @@ export class PluginCore {
 		const telegram = new TelegramService(
 			this.settings,
 			this.gemini,
+			this.opencode,
 			this.agentRunner,
 			this.memory,
 			this.saveSettingsFn
@@ -98,10 +108,20 @@ export class PluginCore {
 	}
 
 	async handleMessage(text: string, source: MessageSource): Promise<void> {
-		// Ensure a chat session exists for the Obsidian chat channel
-		if (!this.chatSession) {
-			const systemPrompt = await this.memory.getContext()
-			this.chatSession = this.gemini.createSession(systemPrompt)
+		const provider = this.settings.llm.provider
+		const systemPrompt = await this.memory.getContext()
+
+		let session: import('./types').LLMSession
+		if (provider === 'opencode') {
+			if (!this.opencodeSession) {
+				this.opencodeSession = this.opencode.createSession(systemPrompt)
+			}
+			session = this.opencodeSession
+		} else {
+			if (!this.chatSession) {
+				this.chatSession = this.gemini.createSession(systemPrompt)
+			}
+			session = this.chatSession as unknown as import('./types').LLMSession
 		}
 
 		// Add user turn to daily log
@@ -114,7 +134,7 @@ export class PluginCore {
 
 		try {
 			const response = await this.agentRunner.run(
-				this.chatSession,
+				session,
 				text,
 				(name) => source.showToolStatus?.(name, 'running'),
 				(name) => source.showToolStatus?.(name, 'done'),
@@ -130,7 +150,7 @@ export class PluginCore {
 			await this.memory.appendToDaily(assistantTurn)
 
 			// Extract important information to memory.md (internal, not shown to user)
-			void this.agentRunner.extractMemory(this.chatSession).catch(() => { /* ignore */ })
+			void this.agentRunner.extractMemory(session).catch(() => { /* ignore */ })
 		} catch (e) {
 			const msg = e instanceof Error ? e.message : String(e)
 			const errorTurn: ConversationTurn = {
@@ -164,6 +184,15 @@ export class PluginCore {
 
 	clearHistory(): void {
 		this.chatSession = null
+		this.opencodeSession = null
+	}
+
+	getOpenCodeService(): OpenCodeService {
+		const idx = this.services.findIndex(
+			(s) => (s as unknown as {id?: string}).id === 'opencode'
+		)
+		if (idx === -1) return null as unknown as OpenCodeService
+		return this.services[idx] as OpenCodeService
 	}
 
 	updateSettings(settings: LavaClawSettings): void {

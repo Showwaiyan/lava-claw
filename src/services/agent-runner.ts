@@ -1,4 +1,4 @@
-import type {ChatSession, Part} from '@google/generative-ai'
+import type {LLMSession, MessagePart} from '../types'
 import type {ToolRegistry, ToolContext} from '../tools/index'
 
 const MAX_ITERATIONS = 10
@@ -19,13 +19,13 @@ export class AgentRunner {
 	}
 
 	async run(
-		session: ChatSession,
+		session: LLMSession,
 		message: string,
 		onToolStart?: (name: string) => void,
 		onToolDone?: (name: string) => void,
 		onToolError?: (name: string, err: string) => void,
 	): Promise<string> {
-		let parts: Part[] = [{text: message}]
+		let parts: MessagePart[] = [{text: message}]
 		let iterations = 0
 
 		while (true) {
@@ -34,21 +34,19 @@ export class AgentRunner {
 			}
 			iterations++
 
-			const result = await session.sendMessage(parts)
-			const response = result.response
-
-			const functionCalls = response.functionCalls()
-			if (!functionCalls || functionCalls.length === 0) {
-				return response.text()
+		const result = await session.sendMessage(parts)
+			const functionCalls = result.functionCalls()
+			if (functionCalls.length === 0) {
+				return result.text()
 			}
 
 			// Execute all tool calls and collect responses
-			const toolResponseParts: Part[] = []
+			const toolResponseParts: MessagePart[] = []
 			for (const call of functionCalls) {
 				onToolStart?.(call.name)
 				let output: string
 				try {
-					output = await this.registry.dispatch(call.name, call.args as Record<string, unknown>, this.ctx)
+					output = await this.registry.dispatch(call.name, call.args, this.ctx)
 					if (output.startsWith('Error:')) {
 						onToolError?.(call.name, output)
 					} else {
@@ -72,7 +70,7 @@ export class AgentRunner {
 		}
 	}
 
-	async extractMemory(session: ChatSession): Promise<void> {
+	async extractMemory(session: LLMSession): Promise<void> {
 		await this.run(session, MEMORY_EXTRACTION_PROMPT)
 	}
 }
